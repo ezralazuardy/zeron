@@ -62,6 +62,10 @@ impl BrowserService {
     }
 
     pub async fn execute_command(&self, mut command: Value) -> Result<Value, String> {
+        if self.commands_tx.receiver_count() == 0 {
+            return Err("No active Zeron browser window connected. Please open a browser tab in the sidebar.".into());
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
         if let Some(obj) = command.as_object_mut() {
             obj.insert("id".to_string(), Value::String(id.clone()));
@@ -73,13 +77,11 @@ impl BrowserService {
             pending.insert(id.clone(), reply_tx);
         }
 
-        if self.commands_tx.receiver_count() == 0 {
+        if let Err(_) = self.commands_tx.send(command) {
             let mut pending = self.pending.lock().await;
             pending.remove(&id);
-            return Err("No active Zeron browser window connected. Please open a browser tab in the sidebar.".into());
+            return Err("Failed to deliver command to browser window".into());
         }
-
-        let _ = self.commands_tx.send(command);
 
         match tokio::time::timeout(Duration::from_secs(15), reply_rx).await {
             Ok(Ok(result)) => result,

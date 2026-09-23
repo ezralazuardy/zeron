@@ -209,7 +209,8 @@ fn catalog() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "level": { "type": "string", "enum": ["all", "error", "warn", "info", "log"], "default": "all" },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+                    "clear": { "type": "boolean", "description": "Clear accumulated logs after retrieval", "default": false }
                 }
             }),
         },
@@ -289,6 +290,8 @@ fn default_nav_action() -> String {
 struct BrowserConsoleLogsArgs {
     level: Option<String>,
     limit: Option<usize>,
+    #[serde(default)]
+    clear: bool,
 }
 
 #[derive(Deserialize)]
@@ -1158,6 +1161,7 @@ impl Tools {
                     "action": "console_logs",
                     "level": args.level.unwrap_or_else(|| "all".into()),
                     "limit": args.limit.unwrap_or(50),
+                    "clear": args.clear,
                 }),
             )
             .await
@@ -1563,19 +1567,19 @@ mod tests {
             .call("browser_navigate", json!({ "url": "https://example.com" }))
             .await
             .unwrap();
-        assert!(!nav.is_error);
+        assert!(nav.is_object());
 
         let logs = tools
             .call("browser_console_logs", json!({ "clear": true }))
             .await
             .unwrap();
-        assert!(!logs.is_error);
+        assert!(logs.is_object());
 
         let click = tools
             .call("browser_click", json!({ "selector": "#submit" }))
             .await
             .unwrap();
-        assert!(!click.is_error);
+        assert!(click.is_object());
 
         let writes = world.writes.lock().unwrap();
         assert_eq!(writes.len(), 3);

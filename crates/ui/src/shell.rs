@@ -2999,11 +2999,14 @@ impl Shell {
     }
 
     fn start_browser_command_listener(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.browser_command_task.is_some() {
+            return;
+        }
         self.browser_command_task = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
                 let engine = {
                     let Ok(engine) = this.read_with(cx, |shell, cx| shell.state.read(cx).engine().cloned()) else {
-                        break;
+                        return;
                     };
                     let Some(engine) = engine else {
                         cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
@@ -3026,7 +3029,7 @@ impl Shell {
                         shell.handle_browser_command(cmd, eng, window, cx);
                     });
                     if res.is_err() {
-                        break;
+                        return;
                     }
                 }
                 cx.background_executor().timer(std::time::Duration::from_millis(1000)).await;

@@ -428,6 +428,22 @@ impl BrowserSurface {
         cx: &mut Context<Self>,
         cb: impl FnOnce(Result<serde_json::Value, String>) + 'static,
     ) {
+        fn parse_eval_result(res: Result<String, String>) -> Result<serde_json::Value, String> {
+            match res {
+                Ok(raw) => {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
+                            Err(err.to_string())
+                        } else {
+                            Ok(val)
+                        }
+                    } else {
+                        Ok(serde_json::json!({ "result": raw }))
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
         match action {
             "get_view" => {
                 let val = serde_json::json!({
@@ -472,6 +488,9 @@ impl BrowserSurface {
                     .take(limit)
                     .cloned()
                     .collect();
+                if args.get("clear").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    self.console_logs.clear();
+                }
                 cb(Ok(serde_json::json!({ "logs": filtered })));
             }
             "click" => {
@@ -479,15 +498,15 @@ impl BrowserSurface {
                 let script = format!(
                     r#"(() => {{
                         const el = document.querySelector({selector:?});
-                        if (!el) return "Element not found: " + {selector:?};
+                        if (!el) return JSON.stringify({{ error: "Element not found: " + {selector:?} }});
                         el.click();
-                        return "Clicked element";
+                        return JSON.stringify({{ ok: true, message: "Clicked element" }});
                     }})()"#
                 );
                 #[cfg(target_os = "macos")]
                 if let Some(native) = &self.native {
                     native.evaluate_with_result(&script, move |res| {
-                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                        cb(parse_eval_result(res));
                     });
                 } else {
                     cb(Err("Native browser not active".into()));
@@ -502,7 +521,7 @@ impl BrowserSurface {
                 let script = format!(
                     r#"(() => {{
                         const el = document.querySelector({selector:?});
-                        if (!el) return "Element not found: " + {selector:?};
+                        if (!el) return JSON.stringify({{ error: "Element not found: " + {selector:?} }});
                         el.focus();
                         el.value = {text:?};
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
@@ -511,13 +530,13 @@ impl BrowserSurface {
                             el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
                             if (el.form) el.form.submit();
                         }}
-                        return "Typed into element";
+                        return JSON.stringify({{ ok: true, message: "Typed into element" }});
                     }})()"#
                 );
                 #[cfg(target_os = "macos")]
                 if let Some(native) = &self.native {
                     native.evaluate_with_result(&script, move |res| {
-                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                        cb(parse_eval_result(res));
                     });
                 } else {
                     cb(Err("Native browser not active".into()));
@@ -532,9 +551,9 @@ impl BrowserSurface {
                     format!(
                         r#"(() => {{
                             const el = document.querySelector({sel:?});
-                            if (!el) return "Element not found: " + {sel:?};
+                            if (!el) return JSON.stringify({{ error: "Element not found: " + {sel:?} }});
                             el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                            return "Scrolled to element";
+                            return JSON.stringify({{ ok: true, message: "Scrolled to element" }});
                         }})()"#
                     )
                 } else {
@@ -547,14 +566,14 @@ impl BrowserSurface {
                     format!(
                         r#"(() => {{
                             {js_code}
-                            return "Scrolled";
+                            return JSON.stringify({{ ok: true, message: "Scrolled" }});
                         }})()"#
                     )
                 };
                 #[cfg(target_os = "macos")]
                 if let Some(native) = &self.native {
                     native.evaluate_with_result(&script, move |res| {
-                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                        cb(parse_eval_result(res));
                     });
                 } else {
                     cb(Err("Native browser not active".into()));

@@ -3,7 +3,7 @@
 //! callbacks enqueue events, never re-enter GPUI. No page-to-engine IPC.
 use super::model::{PageState, Presentation, allowed_navigation};
 use gpui::{Bounds, Pixels, Window};
-use objc2::rc::Retained;
+use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send, sel,
@@ -345,11 +345,56 @@ const CONSOLE_HOOK_SCRIPT: &str = r#"
 })();
 "#;
 
+fn capture_snapshot(
+    view: &WKWebView,
+    rect: Option<objc2_foundation::NSRect>,
+    callback: impl FnOnce(Option<Vec<u8>>) + 'static,
+) {
+    let callback = std::cell::Cell::new(Some(callback));
+    let completion = block2::RcBlock::new(move |snapshot: *mut AnyObject, _err: *mut AnyObject| {
+        if let Some(cb) = callback.take() {
+            if !snapshot.is_null() {
+                unsafe {
+                    let tiff: *mut AnyObject = msg_send![snapshot, TIFFRepresentation];
+                    if !tiff.is_null() {
+                        let len: usize = msg_send![tiff, length];
+                        let bytes: *const u8 = msg_send![tiff, bytes];
+                        let slice = std::slice::from_raw_parts(bytes, len);
+                        if let Ok(img) = image::load_from_memory_with_format(slice, image::ImageFormat::Tiff) {
+                            let mut png_bytes = std::io::Cursor::new(Vec::new());
+                            if img.write_to(&mut png_bytes, image::ImageFormat::Png).is_ok() {
+                                cb(Some(png_bytes.into_inner()));
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            cb(None);
+        }
+    });
+
+    unsafe {
+        let config_class = objc2::class!(WKSnapshotConfiguration);
+        let config: *mut AnyObject = {
+            let cfg: *mut AnyObject = msg_send![config_class, new];
+            if let Some(r) = rect {
+                let _: () = msg_send![cfg, setRect: r];
+            }
+            cfg
+        };
+        let _: () = msg_send![view, takeSnapshotWithConfiguration: config, completionHandler: &*completion];
+        if !config.is_null() {
+            let _: () = msg_send![config, release];
+        }
+    }
+}
+
 impl NativePage {
     pub fn new(window: &Window, data: &BrowserData, tx: Sender) -> Result<Self, String> {
         let mtm = MainThreadMarker::new().ok_or("Browser must be created on the main thread")?;
         let new_tab = tx.clone();
-        let view_cell: std::rc::Rc<std::cell::RefCell<Option<Retained<WKWebView>>>> =
+        let view_cell: std::rc::Rc<std::cell::RefCell<Option<Weak<WKWebView>>>> =
             std::rc::Rc::new(std::cell::RefCell::new(None));
         let view_for_ipc = view_cell.clone();
         let inspect_tx = tx.clone();
@@ -372,54 +417,26 @@ impl NativePage {
                         }
                     } else if action == Some("inspect") {
                         if let Some(elem_val) = value.get("element") {
-                            if let Ok(elem) = serde_json::from_value::<super::model::InspectedElement>(elem_val.clone()) {
+                            if let Ok(mut elem) = serde_json::from_value::<super::model::InspectedElement>(elem_val.clone()) {
                                 let x = elem_val.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let y = elem_val.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let w = elem_val.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let h = elem_val.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let rect = if w > 0.0 && h > 0.0 {
+                                    Some(objc2_foundation::NSRect::new(
+                                        objc2_foundation::NSPoint::new(x, y),
+                                        objc2_foundation::NSSize::new(w, h),
+                                    ))
+                                } else {
+                                    None
+                                };
                                 let inspect_tx = inspect_tx.clone();
 
-                                if let Some(view) = view_for_ipc.borrow().as_ref() {
-                                    let view = view.clone();
-                                    let completion = block2::RcBlock::new(move |snapshot: *mut AnyObject, _err: *mut AnyObject| {
-                                        let mut final_elem = elem.clone();
-                                        if !snapshot.is_null() {
-                                            unsafe {
-                                                let tiff: *mut AnyObject = msg_send![snapshot, TIFFRepresentation];
-                                                if !tiff.is_null() {
-                                                    let len: usize = msg_send![tiff, length];
-                                                    let bytes: *const u8 = msg_send![tiff, bytes];
-                                                    let slice = std::slice::from_raw_parts(bytes, len);
-                                                    if let Ok(img) = image::load_from_memory_with_format(slice, image::ImageFormat::Tiff) {
-                                                        let mut png_bytes = Vec::new();
-                                                        if img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png).is_ok() {
-                                                            final_elem.screenshot = Some(png_bytes);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        let _ = inspect_tx.try_send(NativeEvent::InspectElement(final_elem));
+                                if let Some(view) = view_for_ipc.borrow().as_ref().and_then(|w| w.load()) {
+                                    capture_snapshot(&view, rect, move |bytes| {
+                                        elem.screenshot = bytes;
+                                        let _ = inspect_tx.try_send(NativeEvent::InspectElement(elem));
                                     });
-
-                                    unsafe {
-                                        let config_class = objc2::class!(WKSnapshotConfiguration);
-                                        let config: *mut AnyObject = if w > 0.0 && h > 0.0 {
-                                            let cfg: *mut AnyObject = msg_send![config_class, new];
-                                            let rect = objc2_foundation::NSRect::new(
-                                                objc2_foundation::NSPoint::new(x, y),
-                                                objc2_foundation::NSSize::new(w, h),
-                                            );
-                                            let _: () = msg_send![cfg, setRect: rect];
-                                            cfg
-                                        } else {
-                                            std::ptr::null_mut()
-                                        };
-                                        let _: () = msg_send![&*view, takeSnapshotWithConfiguration: config, completionHandler: &*completion];
-                                        if !config.is_null() {
-                                            let _: () = msg_send![config, release];
-                                        }
-                                    }
                                 } else {
                                     let _ = inspect_tx.try_send(NativeEvent::InspectElement(elem));
                                 }
@@ -438,7 +455,7 @@ impl NativePage {
             .build_as_child(window)
             .map_err(|e| e.to_string())?;
         let view = Retained::into_super(web.webview());
-        *view_cell.borrow_mut() = Some(view.clone());
+        *view_cell.borrow_mut() = Some(Weak::from_retained(&view));
         window
             .enable_scene_overlay()
             .map_err(|error| error.to_string())?;
@@ -863,43 +880,7 @@ impl NativePage {
         callback: impl FnOnce(Option<Vec<u8>>) + 'static,
     ) {
         let host = self.0.borrow();
-        let callback = std::cell::Cell::new(Some(callback));
-        let completion = block2::RcBlock::new(move |snapshot: *mut AnyObject, _err: *mut AnyObject| {
-            if let Some(cb) = callback.take() {
-                if !snapshot.is_null() {
-                    unsafe {
-                        let tiff: *mut AnyObject = msg_send![snapshot, TIFFRepresentation];
-                        if !tiff.is_null() {
-                            let len: usize = msg_send![tiff, length];
-                            let bytes: *const u8 = msg_send![tiff, bytes];
-                            let slice = std::slice::from_raw_parts(bytes, len);
-                            if let Ok(img) = image::load_from_memory_with_format(slice, image::ImageFormat::Tiff) {
-                                let mut png_bytes = std::io::Cursor::new(Vec::new());
-                                if img.write_to(&mut png_bytes, image::ImageFormat::Png).is_ok() {
-                                    cb(Some(png_bytes.into_inner()));
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-                cb(None);
-            }
-        });
-        unsafe {
-            let config_class = objc2::class!(WKSnapshotConfiguration);
-            let config: *mut AnyObject = {
-                let cfg: *mut AnyObject = msg_send![config_class, new];
-                if let Some(r) = rect {
-                    let _: () = msg_send![cfg, setRect: r];
-                }
-                cfg
-            };
-            let _: () = msg_send![&*host.view, takeSnapshotWithConfiguration: config, completionHandler: &*completion];
-            if !config.is_null() {
-                let _: () = msg_send![config, release];
-            }
-        }
+        capture_snapshot(&host.view, rect, callback);
     }
 }
 
