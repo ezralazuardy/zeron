@@ -25,6 +25,48 @@ impl PageState {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InspectedElement {
+    pub tag: String,
+    pub id: String,
+    pub classes: String,
+    pub selector: String,
+    pub text: String,
+    #[serde(default)]
+    pub screenshot: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConsoleLogEntry {
+    pub level: String,
+    pub text: String,
+    pub timestamp: u64,
+}
+
+impl InspectedElement {
+    pub fn to_prompt_context(&self) -> String {
+        let mut desc = self.tag.clone();
+        if !self.id.is_empty() {
+            desc.push('#');
+            desc.push_str(&self.id);
+        }
+        if !self.classes.is_empty() {
+            for cls in self.classes.split_whitespace() {
+                desc.push('.');
+                desc.push_str(cls);
+            }
+        }
+        if desc == self.tag && !self.selector.is_empty() {
+            desc = self.selector.clone();
+        }
+        if !self.text.is_empty() {
+            format!("[Element: {} \"{}\"] ", desc, self.text)
+        } else {
+            format!("[Element: {}] ", desc)
+        }
+    }
+}
+
 pub fn loopback(url: &url::Url) -> bool {
     match url.host() {
         Some(url::Host::Domain(host)) => host == "localhost" || host.ends_with(".localhost"),
@@ -127,6 +169,51 @@ pub fn presentation(active: bool, dragging: bool) -> Presentation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_inspected_element_prompt_context() {
+        let el = InspectedElement {
+            tag: "button".into(),
+            id: "submit".into(),
+            classes: "btn btn-primary".into(),
+            selector: "form > button#submit".into(),
+            text: "Submit Form".into(),
+        };
+        assert_eq!(
+            el.to_prompt_context(),
+            "[Element: button#submit.btn.btn-primary \"Submit Form\"] "
+        );
+
+        // Selector fallback when no id or classes
+        let el_selector = InspectedElement {
+            tag: "div".into(),
+            id: "".into(),
+            classes: "".into(),
+            selector: "main > section:nth-of-type(2)".into(),
+            text: "Hero Content".into(),
+        };
+        assert_eq!(
+            el_selector.to_prompt_context(),
+            "[Element: main > section:nth-of-type(2) \"Hero Content\"] "
+        );
+
+        // Element without text
+        let el_no_text = InspectedElement {
+            tag: "input".into(),
+            id: "search".into(),
+            classes: "".into(),
+            selector: "input#search".into(),
+            text: "".into(),
+        };
+        assert_eq!(el_no_text.to_prompt_context(), "[Element: input#search] ");
+
+        // Serde roundtrip for IPC payload compatibility
+        let json = r#"{"tag":"span","id":"badge","classes":"pill active","selector":"span#badge","text":"5"}"#;
+        let parsed: InspectedElement = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.tag, "span");
+        assert_eq!(parsed.id, "badge");
+        assert_eq!(parsed.text, "5");
+    }
     #[test]
     fn normalizes_web_addresses_and_loopback_ports() {
         for (input, expected) in [
@@ -175,5 +262,21 @@ mod tests {
         assert_eq!(page.label(), "localhost");
         page.title = "Local preview".into();
         assert_eq!(page.label(), "Local preview");
+    }
+
+    #[test]
+    fn console_log_entry_serde_and_formatting() {
+        let entry = ConsoleLogEntry {
+            level: "error".into(),
+            message: "Uncaught TypeError: Cannot read property of undefined".into(),
+            source: Some("app.js:42".into()),
+            timestamp: 123456789,
+        };
+        let serialized = serde_json::to_string(&entry).unwrap();
+        let deserialized: ConsoleLogEntry = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.level, "error");
+        assert_eq!(deserialized.message, "Uncaught TypeError: Cannot read property of undefined");
+        assert_eq!(deserialized.source.as_deref(), Some("app.js:42"));
+        assert_eq!(deserialized.timestamp, 123456789);
     }
 }

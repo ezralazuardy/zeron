@@ -5749,7 +5749,15 @@ impl Composer {
         cx.notify();
     }
 
-    fn add_staged(&mut self, staged: Vec<StagedAttachment>, cx: &mut Context<Self>) {
+    pub(crate) fn add_staged_attachment(
+        &mut self,
+        attachment: StagedAttachment,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_staged(vec![attachment], cx);
+    }
+
+    pub(crate) fn add_staged(&mut self, staged: Vec<StagedAttachment>, cx: &mut Context<Self>) {
         if self.queue_edit_finishing {
             return;
         }

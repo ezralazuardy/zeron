@@ -149,6 +149,8 @@ pub(super) enum NativeEvent {
     NewTab(String),
     Key(gpui::Keystroke),
     Favicon { page: String, url: String },
+    InspectElement(super::model::InspectedElement),
+    ConsoleLog(super::model::ConsoleLogEntry),
 }
 
 struct ObserverState {
@@ -290,15 +292,142 @@ pub(super) struct Host {
     visibility_changes: Cell<u64>,
 }
 
+const CONSOLE_HOOK_SCRIPT: &str = r#"
+(() => {
+    if (window.__zeron_console_hooked) return;
+    window.__zeron_console_hooked = true;
+    window.__zeron_console_logs = window.__zeron_console_logs || [];
+
+    const send = (level, text) => {
+        const entry = { level: String(level), text: String(text), timestamp: Date.now() };
+        window.__zeron_console_logs.push(entry);
+        if (window.__zeron_console_logs.length > 200) {
+            window.__zeron_console_logs.shift();
+        }
+        try {
+            if (window.ipc && window.ipc.postMessage) {
+                window.ipc.postMessage(JSON.stringify({ action: "console_log", log: entry }));
+            }
+        } catch (_) {}
+    };
+
+    const fmt = (args) => args.map(a => {
+        try {
+            return typeof a === 'object' ? JSON.stringify(a) : String(a);
+        } catch (_) {
+            return String(a);
+        }
+    }).join(' ');
+
+    const origLog = console.log;
+    console.log = (...args) => {
+        origLog.apply(console, args);
+        send("log", fmt(args));
+    };
+    const origWarn = console.warn;
+    console.warn = (...args) => {
+        origWarn.apply(console, args);
+        send("warn", fmt(args));
+    };
+    const origError = console.error;
+    console.error = (...args) => {
+        origError.apply(console, args);
+        send("error", fmt(args));
+    };
+    const origInfo = console.info;
+    console.info = (...args) => {
+        origInfo.apply(console, args);
+        send("info", fmt(args));
+    };
+    window.addEventListener("error", (e) => {
+        send("error", `${e.message} (${e.filename || 'script'}:${e.lineno || 0}:${e.colno || 0})`);
+    });
+})();
+"#;
+
 impl NativePage {
     pub fn new(window: &Window, data: &BrowserData, tx: Sender) -> Result<Self, String> {
         let mtm = MainThreadMarker::new().ok_or("Browser must be created on the main thread")?;
         let new_tab = tx.clone();
+        let view_cell: std::rc::Rc<std::cell::RefCell<Option<Retained<WKWebView>>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+        let view_for_ipc = view_cell.clone();
+        let inspect_tx = tx.clone();
+        let console_tx = tx.clone();
         let web = wry::WebViewBuilder::new()
             .with_webview_configuration(data.configuration(mtm))
             .with_visible(false)
             .with_focused(false)
             .with_incognito(true)
+            .with_initialization_script(CONSOLE_HOOK_SCRIPT)
+            .with_ipc_handler(move |request| {
+                let body = request.body();
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
+                    let action = value.get("action").and_then(|v| v.as_str());
+                    if action == Some("console_log") {
+                        if let Some(log_val) = value.get("log") {
+                            if let Ok(entry) = serde_json::from_value::<super::model::ConsoleLogEntry>(log_val.clone()) {
+                                let _ = console_tx.try_send(NativeEvent::ConsoleLog(entry));
+                            }
+                        }
+                    } else if action == Some("inspect") {
+                        if let Some(elem_val) = value.get("element") {
+                            if let Ok(elem) = serde_json::from_value::<super::model::InspectedElement>(elem_val.clone()) {
+                                let x = elem_val.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let y = elem_val.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let w = elem_val.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let h = elem_val.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let inspect_tx = inspect_tx.clone();
+
+                                if let Some(view) = view_for_ipc.borrow().as_ref() {
+                                    let view = view.clone();
+                                    let completion = block2::RcBlock::new(move |snapshot: *mut AnyObject, _err: *mut AnyObject| {
+                                        let mut final_elem = elem.clone();
+                                        if !snapshot.is_null() {
+                                            unsafe {
+                                                let tiff: *mut AnyObject = msg_send![snapshot, TIFFRepresentation];
+                                                if !tiff.is_null() {
+                                                    let len: usize = msg_send![tiff, length];
+                                                    let bytes: *const u8 = msg_send![tiff, bytes];
+                                                    let slice = std::slice::from_raw_parts(bytes, len);
+                                                    if let Ok(img) = image::load_from_memory_with_format(slice, image::ImageFormat::Tiff) {
+                                                        let mut png_bytes = Vec::new();
+                                                        if img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png).is_ok() {
+                                                            final_elem.screenshot = Some(png_bytes);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let _ = inspect_tx.try_send(NativeEvent::InspectElement(final_elem));
+                                    });
+
+                                    unsafe {
+                                        let config_class = objc2::class!(WKSnapshotConfiguration);
+                                        let config: *mut AnyObject = if w > 0.0 && h > 0.0 {
+                                            let cfg: *mut AnyObject = msg_send![config_class, new];
+                                            let rect = objc2_foundation::NSRect::new(
+                                                objc2_foundation::NSPoint::new(x, y),
+                                                objc2_foundation::NSSize::new(w, h),
+                                            );
+                                            let _: () = msg_send![cfg, setRect: rect];
+                                            cfg
+                                        } else {
+                                            std::ptr::null_mut()
+                                        };
+                                        let _: () = msg_send![&*view, takeSnapshotWithConfiguration: config, completionHandler: &*completion];
+                                        if !config.is_null() {
+                                            let _: () = msg_send![config, release];
+                                        }
+                                    }
+                                } else {
+                                    let _ = inspect_tx.try_send(NativeEvent::InspectElement(elem));
+                                }
+                            }
+                        }
+                    }
+                }
+            })
             .with_new_window_req_handler(move |url, _| {
                 if allowed_navigation(&url) {
                     let _ = new_tab.try_send(NativeEvent::NewTab(url));
@@ -309,6 +438,7 @@ impl NativePage {
             .build_as_child(window)
             .map_err(|e| e.to_string())?;
         let view = Retained::into_super(web.webview());
+        *view_cell.borrow_mut() = Some(view.clone());
         window
             .enable_scene_overlay()
             .map_err(|error| error.to_string())?;
@@ -518,6 +648,257 @@ impl NativePage {
                 &NSString::from_str("(() => { const link = document.querySelector('link[rel~=icon]'); return link ? link.href : new URL('/favicon.ico', location.href).href; })()"),
                 Some(&completion),
             );
+        }
+    }
+    pub fn set_design_mode(&self, enabled: bool) {
+        let host = self.0.borrow();
+        let script = format!(
+            r#"(() => {{
+                if (window.__zeron_toggle_design_mode) {{
+                    window.__zeron_toggle_design_mode({enabled});
+                    return;
+                }}
+                if (!{enabled}) return;
+                window.__zeron_design_mode_installed = true;
+                let active = true;
+
+                let overlay = document.createElement('div');
+                overlay.id = '__zeron_design_overlay__';
+                overlay.style.position = 'fixed';
+                overlay.style.pointerEvents = 'none';
+                overlay.style.zIndex = '2147483647';
+                overlay.style.border = '2px solid #3b82f6';
+                overlay.style.backgroundColor = 'rgba(59, 130, 246, 0.12)';
+                overlay.style.display = 'none';
+                overlay.style.transition = 'all 0.05s ease';
+
+                let badge = document.createElement('div');
+                badge.id = '__zeron_design_badge__';
+                badge.style.position = 'fixed';
+                badge.style.pointerEvents = 'none';
+                badge.style.zIndex = '2147483647';
+                badge.style.padding = '2px 6px';
+                badge.style.borderRadius = '4px';
+                badge.style.fontSize = '11px';
+                badge.style.fontFamily = 'monospace';
+                badge.style.color = '#ffffff';
+                badge.style.backgroundColor = '#1d4ed8';
+                badge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                badge.style.display = 'none';
+                badge.style.whiteSpace = 'nowrap';
+
+                document.documentElement.appendChild(overlay);
+                document.documentElement.appendChild(badge);
+
+                let hoveredEl = null;
+                let rafId = null;
+
+                function getSelector(el) {{
+                    if (!(el instanceof Element)) return '';
+                    let path = [];
+                    while (el && el.nodeType === Node.ELEMENT_NODE) {{
+                        let selector = el.nodeName.toLowerCase();
+                        if (el.id) {{
+                            selector += '#' + el.id;
+                            path.unshift(selector);
+                            break;
+                        }} else {{
+                            let sib = el, nth = 1;
+                            while (sib = sib.previousElementSibling) {{
+                                if (sib.nodeName.toLowerCase() === selector) nth++;
+                            }}
+                            if (nth !== 1) selector += ':nth-of-type(' + nth + ')';
+                        }}
+                        path.unshift(selector);
+                        el = el.parentNode;
+                    }}
+                    return path.join(' > ');
+                }}
+
+                function onPointerMove(e) {{
+                    if (!active) return;
+                    if (rafId) cancelAnimationFrame(rafId);
+                    rafId = requestAnimationFrame(() => {{
+                        let target = document.elementFromPoint(e.clientX, e.clientY);
+                        if (!target || target === overlay || target === badge || target === document.documentElement || target === document.body) {{
+                            overlay.style.display = 'none';
+                            badge.style.display = 'none';
+                            hoveredEl = null;
+                            return;
+                        }}
+                        hoveredEl = target;
+                        let rect = target.getBoundingClientRect();
+                        overlay.style.left = rect.left + 'px';
+                        overlay.style.top = rect.top + 'px';
+                        overlay.style.width = rect.width + 'px';
+                        overlay.style.height = rect.height + 'px';
+                        overlay.style.display = 'block';
+
+                        let tag = target.tagName.toLowerCase();
+                        let rawCls = typeof target.className === 'string' ? target.className : (target.className && target.className.baseVal) || '';
+                        let cls = rawCls.trim()
+                            ? '.' + rawCls.trim().split(/\s+/).filter(Boolean).slice(0, 2).join('.')
+                            : '';
+                        let textDim = Math.round(rect.width) + ' \u00d7 ' + Math.round(rect.height);
+                        badge.textContent = tag + cls + ' (' + textDim + ')';
+                        let badgeTop = rect.top - 22;
+                        if (badgeTop < 2) badgeTop = rect.bottom + 4;
+                        badge.style.left = Math.max(2, rect.left) + 'px';
+                        badge.style.top = badgeTop + 'px';
+                        badge.style.display = 'block';
+                    }});
+                }}
+
+                function onScroll() {{
+                    if (!active || !hoveredEl) return;
+                    let rect = hoveredEl.getBoundingClientRect();
+                    overlay.style.left = rect.left + 'px';
+                    overlay.style.top = rect.top + 'px';
+                    overlay.style.width = rect.width + 'px';
+                    overlay.style.height = rect.height + 'px';
+                    let badgeTop = rect.top - 22;
+                    if (badgeTop < 2) badgeTop = rect.bottom + 4;
+                    badge.style.left = Math.max(2, rect.left) + 'px';
+                    badge.style.top = badgeTop + 'px';
+                }}
+
+                function onClick(e) {{
+                    if (!active || !hoveredEl) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    let el = hoveredEl;
+                    let rect = el.getBoundingClientRect();
+                    let tag = el.tagName.toLowerCase();
+                    let id = el.id || '';
+                    let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
+                    let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                    let selector = getSelector(el);
+
+                    let payload = {{
+                        action: 'inspect',
+                        element: {{
+                            tag, id, classes, selector, text,
+                            x: Math.max(0, rect.left),
+                            y: Math.max(0, rect.top),
+                            w: Math.max(0, rect.width),
+                            h: Math.max(0, rect.height)
+                        }}
+                    }};
+
+                    if (window.ipc && window.ipc.postMessage) {{
+                        window.ipc.postMessage(JSON.stringify(payload));
+                    }}
+
+                    overlay.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
+                    overlay.style.borderColor = '#22c55e';
+                    setTimeout(() => {{
+                        overlay.style.backgroundColor = 'rgba(59, 130, 246, 0.12)';
+                        overlay.style.borderColor = '#3b82f6';
+                    }}, 250);
+                }}
+
+                window.__zeron_toggle_design_mode = function(enable) {{
+                    active = enable;
+                    if (!active) {{
+                        if (rafId) cancelAnimationFrame(rafId);
+                        overlay.style.display = 'none';
+                        badge.style.display = 'none';
+                        hoveredEl = null;
+                    }}
+                }};
+
+                window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: true }});
+                window.addEventListener('scroll', onScroll, {{ capture: true, passive: true }});
+                window.addEventListener('click', onClick, {{ capture: true }});
+            }})();"#
+        );
+        let completion = block2::RcBlock::new(|_: *mut AnyObject, _: *mut NSError| {});
+        unsafe {
+            host.view.evaluateJavaScript_completionHandler(
+                &NSString::from_str(&script),
+                Some(&completion),
+            );
+        }
+    }
+
+    pub fn evaluate_with_result(
+        &self,
+        script: &str,
+        callback: impl FnOnce(Result<String, String>) + 'static,
+    ) {
+        let host = self.0.borrow();
+        let callback = std::cell::Cell::new(Some(callback));
+        let completion = block2::RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
+            if let Some(cb) = callback.take() {
+                if !error.is_null() {
+                    let desc = unsafe { (*error).localizedDescription().to_string() };
+                    cb(Err(desc));
+                } else if value.is_null() {
+                    cb(Ok(String::new()));
+                } else {
+                    let s: String = unsafe {
+                        if let Some(ns_str) = value.as_ref().and_then(|v| v.downcast_ref::<NSString>()) {
+                            ns_str.to_string()
+                        } else {
+                            let desc: Retained<NSString> = msg_send![value, description];
+                            desc.to_string()
+                        }
+                    };
+                    cb(Ok(s));
+                }
+            }
+        });
+        unsafe {
+            host.view.evaluateJavaScript_completionHandler(
+                &NSString::from_str(script),
+                Some(&completion),
+            );
+        }
+    }
+
+    pub fn snapshot(
+        &self,
+        rect: Option<objc2_foundation::NSRect>,
+        callback: impl FnOnce(Option<Vec<u8>>) + 'static,
+    ) {
+        let host = self.0.borrow();
+        let callback = std::cell::Cell::new(Some(callback));
+        let completion = block2::RcBlock::new(move |snapshot: *mut AnyObject, _err: *mut AnyObject| {
+            if let Some(cb) = callback.take() {
+                if !snapshot.is_null() {
+                    unsafe {
+                        let tiff: *mut AnyObject = msg_send![snapshot, TIFFRepresentation];
+                        if !tiff.is_null() {
+                            let len: usize = msg_send![tiff, length];
+                            let bytes: *const u8 = msg_send![tiff, bytes];
+                            let slice = std::slice::from_raw_parts(bytes, len);
+                            if let Ok(img) = image::load_from_memory_with_format(slice, image::ImageFormat::Tiff) {
+                                let mut png_bytes = std::io::Cursor::new(Vec::new());
+                                if img.write_to(&mut png_bytes, image::ImageFormat::Png).is_ok() {
+                                    cb(Some(png_bytes.into_inner()));
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+                cb(None);
+            }
+        });
+        unsafe {
+            let config_class = objc2::class!(WKSnapshotConfiguration);
+            let config: *mut AnyObject = {
+                let cfg: *mut AnyObject = msg_send![config_class, new];
+                if let Some(r) = rect {
+                    let _: () = msg_send![cfg, setRect: r];
+                }
+                cfg
+            };
+            let _: () = msg_send![&*host.view, takeSnapshotWithConfiguration: config, completionHandler: &*completion];
+            if !config.is_null() {
+                let _: () = msg_send![config, release];
+            }
         }
     }
 }

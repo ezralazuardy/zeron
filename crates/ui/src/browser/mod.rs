@@ -17,7 +17,7 @@ use gpui::{
 use model::{PageState, Presentation};
 gpui::actions!(
     browser,
-    [Reload, FocusAddress, NewTab, CloseTab, Back, Forward]
+    [Reload, FocusAddress, NewTab, CloseTab, Back, Forward, ToggleDesignMode]
 );
 
 pub(crate) fn bind_keys(cx: &mut App, keymap: &crate::settings::KeymapConfig) {
@@ -48,6 +48,7 @@ pub(crate) fn bind_keys(cx: &mut App, keymap: &crate::settings::KeymapConfig) {
     bind!("mod-w", CloseTab);
     bind!("mod-[", Back);
     bind!("mod-]", Forward);
+    bind!("mod-shift-d", ToggleDesignMode);
     let reload = keymap.get(ShortcutId::BrowserReload);
     if available(reload, Some(ShortcutId::BrowserReload))
         && gpui::Keystroke::parse(&platform_combo(reload)).is_ok()
@@ -65,6 +66,7 @@ pub enum BrowserEvent {
     Changed,
     NewTab(Option<String>),
     Close,
+    InspectElement(model::InspectedElement),
 }
 
 /// A window/profile's ephemeral website data, allocated on first navigation.
@@ -81,6 +83,8 @@ pub struct BrowserSurface {
     focus: FocusHandle,
     pub page: PageState,
     pub favicon: Option<std::sync::Arc<gpui::Image>>,
+    pub design_mode: bool,
+    pub console_logs: Vec<model::ConsoleLogEntry>,
     address_edited: bool,
     validation: Option<String>,
     remote: bool,
@@ -159,6 +163,8 @@ impl BrowserSurface {
             focus: cx.focus_handle(),
             page: PageState::default(),
             favicon: None,
+            design_mode: false,
+            console_logs: Vec::new(),
             address_edited: false,
             validation: None,
             remote,
@@ -242,6 +248,15 @@ impl BrowserSurface {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if let Some(native) = &mut self.native {
             native.present(presentation);
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_design_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.design_mode = !self.design_mode;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if let Some(native) = &self.native {
+            native.set_design_mode(self.design_mode);
         }
         cx.notify();
     }
@@ -368,7 +383,7 @@ impl BrowserSurface {
         self.navigate(&url, window, cx);
     }
 
-    fn reload(&mut self, cx: &mut Context<Self>) {
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if let Some(native) = &self.native {
             if self.page.error.is_some() {
@@ -396,13 +411,190 @@ impl BrowserSurface {
         }
     }
 
-    fn history(&mut self, forward: bool) {
+    pub fn history(&mut self, forward: bool) {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if let Some(native) = &self.native {
             native.history(forward);
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = forward;
+    }
+
+    pub fn execute_command(
+        &mut self,
+        action: &str,
+        args: &serde_json::Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        cb: impl FnOnce(Result<serde_json::Value, String>) + 'static,
+    ) {
+        match action {
+            "get_view" => {
+                let val = serde_json::json!({
+                    "url": self.page.url,
+                    "title": self.page.title,
+                    "loading": self.page.loading,
+                    "canBack": self.page.can_back,
+                    "canForward": self.page.can_forward,
+                    "consoleLogCount": self.console_logs.len(),
+                });
+                cb(Ok(val));
+            }
+            "navigate" => {
+                let url = args.get("url").and_then(|v| v.as_str()).unwrap_or_default();
+                if url.is_empty() {
+                    cb(Err("Missing url".into()));
+                    return;
+                }
+                self.navigate(url, window, cx);
+                cb(Ok(serde_json::json!({ "navigating": url })));
+            }
+            "reload" => {
+                self.reload(cx);
+                cb(Ok(serde_json::json!({ "reloaded": true })));
+            }
+            "back" => {
+                self.history(false);
+                cb(Ok(serde_json::json!({ "back": true })));
+            }
+            "forward" => {
+                self.history(true);
+                cb(Ok(serde_json::json!({ "forward": true })));
+            }
+            "console_logs" => {
+                let level = args.get("level").and_then(|v| v.as_str()).unwrap_or("all");
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+                let filtered: Vec<_> = self
+                    .console_logs
+                    .iter()
+                    .rev()
+                    .filter(|l| level == "all" || l.level.eq_ignore_ascii_case(level))
+                    .take(limit)
+                    .cloned()
+                    .collect();
+                cb(Ok(serde_json::json!({ "logs": filtered })));
+            }
+            "click" => {
+                let selector = args.get("selector").and_then(|v| v.as_str()).unwrap_or_default();
+                let script = format!(
+                    r#"(() => {{
+                        const el = document.querySelector({selector:?});
+                        if (!el) return "Element not found: " + {selector:?};
+                        el.click();
+                        return "Clicked element";
+                    }})()"#
+                );
+                #[cfg(target_os = "macos")]
+                if let Some(native) = &self.native {
+                    native.evaluate_with_result(&script, move |res| {
+                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                    });
+                } else {
+                    cb(Err("Native browser not active".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                cb(Err("Not supported on this platform".into()));
+            }
+            "type" => {
+                let selector = args.get("selector").and_then(|v| v.as_str()).unwrap_or_default();
+                let text = args.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+                let submit = args.get("submit").and_then(|v| v.as_bool()).unwrap_or(false);
+                let script = format!(
+                    r#"(() => {{
+                        const el = document.querySelector({selector:?});
+                        if (!el) return "Element not found: " + {selector:?};
+                        el.focus();
+                        el.value = {text:?};
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        if ({submit}) {{
+                            el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                            if (el.form) el.form.submit();
+                        }}
+                        return "Typed into element";
+                    }})()"#
+                );
+                #[cfg(target_os = "macos")]
+                if let Some(native) = &self.native {
+                    native.evaluate_with_result(&script, move |res| {
+                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                    });
+                } else {
+                    cb(Err("Native browser not active".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                cb(Err("Not supported on this platform".into()));
+            }
+            "scroll" => {
+                let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+                let selector = args.get("selector").and_then(|v| v.as_str());
+                let script = if let Some(sel) = selector {
+                    format!(
+                        r#"(() => {{
+                            const el = document.querySelector({sel:?});
+                            if (!el) return "Element not found: " + {sel:?};
+                            el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                            return "Scrolled to element";
+                        }})()"#
+                    )
+                } else {
+                    let js_code = match direction {
+                        "top" => "window.scrollTo({ top: 0, behavior: 'smooth' });",
+                        "bottom" => "window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });",
+                        "up" => "window.scrollBy({ top: -500, behavior: 'smooth' });",
+                        _ => "window.scrollBy({ top: 500, behavior: 'smooth' });",
+                    };
+                    format!(
+                        r#"(() => {{
+                            {js_code}
+                            return "Scrolled";
+                        }})()"#
+                    )
+                };
+                #[cfg(target_os = "macos")]
+                if let Some(native) = &self.native {
+                    native.evaluate_with_result(&script, move |res| {
+                        cb(res.map(|msg| serde_json::json!({ "result": msg })));
+                    });
+                } else {
+                    cb(Err("Native browser not active".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                cb(Err("Not supported on this platform".into()));
+            }
+            "evaluate" => {
+                let script = args.get("script").and_then(|v| v.as_str()).unwrap_or_default();
+                #[cfg(target_os = "macos")]
+                if let Some(native) = &self.native {
+                    native.evaluate_with_result(script, move |res| {
+                        cb(res.map(|result| serde_json::json!({ "result": result })));
+                    });
+                } else {
+                    cb(Err("Native browser not active".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                cb(Err("Not supported on this platform".into()));
+            }
+            "screenshot" => {
+                #[cfg(target_os = "macos")]
+                if let Some(native) = &self.native {
+                    use base64::Engine;
+                    native.snapshot(None, move |bytes| {
+                        if let Some(b) = bytes {
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(&b);
+                            cb(Ok(serde_json::json!({ "image": encoded, "format": "png" })));
+                        } else {
+                            cb(Err("Failed to take screenshot".into()));
+                        }
+                    });
+                } else {
+                    cb(Err("Native browser not active".into()));
+                }
+                #[cfg(not(target_os = "macos"))]
+                cb(Err("Not supported on this platform".into()));
+            }
+            other => cb(Err(format!("Unknown browser action: {other}"))),
+        }
     }
 
     /// Explicitly close even if an async callback temporarily retains an entity.
@@ -475,6 +667,9 @@ impl BrowserSurface {
                 native.present(self.presentation);
                 if finished && let Some(url) = &page.url {
                     native.discover_favicon(url.clone());
+                    if self.design_mode {
+                        native.set_design_mode(true);
+                    }
                 }
                 if page != self.page {
                     self.page = page;
@@ -548,6 +743,16 @@ impl BrowserSurface {
                         }
                     });
                 }));
+            }
+            native::NativeEvent::InspectElement(element) => {
+                cx.emit(BrowserEvent::InspectElement(element));
+            }
+            native::NativeEvent::ConsoleLog(entry) => {
+                self.console_logs.push(entry);
+                if self.console_logs.len() > 200 {
+                    self.console_logs.remove(0);
+                }
+                cx.notify();
             }
         }
     }
