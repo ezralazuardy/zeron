@@ -1008,58 +1008,116 @@ fn parse_element_details(inner: &str) -> (String, String) {
 }
 
 fn element_mention_links(text: &str) -> Vec<FileMentionLink> {
-    if !text.contains("[Element: ") {
+    if !text.contains("[Element: ") && !text.contains("```browser_element") {
         return Vec::new();
     }
     let mut links = Vec::new();
-    let marker = "[Element: ";
-    let mut search_from = 0;
-    while let Some(rel_start) = text[search_from..].find(marker) {
-        let start = search_from + rel_start;
-        let content_start = start + marker.len();
-        let mut depth = 1usize;
-        let mut in_quotes = false;
-        let mut escaped = false;
-        let mut end = None;
-        for (i, ch) in text[content_start..].char_indices() {
-            if in_quotes {
-                if escaped {
-                    escaped = false;
-                } else if ch == '\\' {
-                    escaped = true;
-                } else if ch == '"' {
-                    in_quotes = false;
-                }
-            } else {
-                match ch {
-                    '"' => in_quotes = true,
-                    '[' => depth += 1,
-                    ']' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = Some(content_start + i + 1);
-                            break;
-                        }
-                    }
-                    _ => {}
+
+    if text.contains("```browser_element") {
+        let marker = "```browser_element";
+        let mut search_from = 0;
+        while let Some(rel_start) = text[search_from..].find(marker) {
+            let marker_start = search_from + rel_start;
+            let mut start = marker_start;
+            let before = text[..marker_start].trim_end();
+            if let Some(at_idx) = before.rfind('@') {
+                if text[at_idx + 1..marker_start].chars().all(|c| c.is_whitespace()) {
+                    start = at_idx;
                 }
             }
+            let content_start = marker_start + marker.len();
+            if let Some(close_rel) = text[content_start..].find("```") {
+                let close_idx = content_start + close_rel;
+                let mut end = close_idx + 3;
+                let mut trail = 0;
+                while text[end + trail..].starts_with(' ') || text[end + trail..].starts_with('\t') {
+                    trail += 1;
+                }
+                if text[end + trail..].starts_with("\r\n") {
+                    end += trail + 2;
+                } else if text[end + trail..].starts_with('\n') {
+                    end += trail + 1;
+                }
+                let block_content = &text[content_start..close_idx];
+                let mut tag = String::new();
+                for line in block_content.lines() {
+                    let trimmed = line.trim();
+                    if let Some(rest) = trimmed.strip_prefix("tag:") {
+                        tag = rest.trim().to_string();
+                        break;
+                    }
+                }
+                let basename = if tag.is_empty() {
+                    "element".to_string()
+                } else {
+                    tag
+                };
+                links.push(FileMentionLink {
+                    range: start..end,
+                    basename,
+                    path: text[start..close_idx + 3].trim().to_string(),
+                    is_dir: false,
+                    prefix: '◈',
+                });
+                search_from = end;
+            } else {
+                search_from = content_start;
+            }
         }
-        let Some(end_idx) = end else {
-            search_from = content_start;
-            continue;
-        };
-        let inner = &text[content_start..end_idx - 1];
-        let (basename, path) = parse_element_details(inner);
-        links.push(FileMentionLink {
-            range: start..end_idx,
-            basename,
-            path,
-            is_dir: false,
-            prefix: '◈',
-        });
-        search_from = end_idx;
     }
+
+    if text.contains("[Element: ") {
+        let marker = "[Element: ";
+        let mut search_from = 0;
+        while let Some(rel_start) = text[search_from..].find(marker) {
+            let start = search_from + rel_start;
+            let content_start = start + marker.len();
+            let mut depth = 1usize;
+            let mut in_quotes = false;
+            let mut escaped = false;
+            let mut end = None;
+            for (i, ch) in text[content_start..].char_indices() {
+                if in_quotes {
+                    if escaped {
+                        escaped = false;
+                    } else if ch == '\\' {
+                        escaped = true;
+                    } else if ch == '"' {
+                        in_quotes = false;
+                    }
+                } else {
+                    match ch {
+                        '"' => in_quotes = true,
+                        '[' => depth += 1,
+                        ']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = Some(content_start + i + 1);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let Some(end_idx) = end else {
+                search_from = content_start;
+                continue;
+            };
+            let inner = &text[content_start..end_idx - 1];
+            let (basename, path) = parse_element_details(inner);
+            links.push(FileMentionLink {
+                range: start..end_idx,
+                basename,
+                path,
+                is_dir: false,
+                prefix: '◈',
+            });
+            search_from = end_idx;
+        }
+    }
+
+    links.sort_by_key(|link| link.range.start);
     links
 }
 
@@ -1518,6 +1576,7 @@ pub fn sent_mention_display(raw: &str) -> Option<(String, Vec<SentMentionSpan>)>
     if !raw.contains(FILE_MENTION_SCHEME)
         && !raw.contains(zeron_proto::invocation::INVOCATION_SCHEME)
         && !raw.contains("[Element: ")
+        && !raw.contains("```browser_element")
     {
         return None;
     }
@@ -12851,6 +12910,29 @@ mod tests {
         assert_eq!(
             &projection.display,
             "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0} cek title ini dan \u{00A0}◈\u{00A0}p.mt-6\u{00A0} pakai font apa"
+        );
+    }
+
+    #[test]
+    fn element_mention_cursor_browser_element_format() {
+        let raw = "@\n```browser_element\nThe user selected this node in the browser preview (blue outline in the screenshot).\n\ntag: h1\ndom_path: main > div.bg-canvas > section.relative.flex.min-h-[520px].flex-col.md:min-h-[593px] > div.relative.z-10.flex.w-full.flex-1.flex-col.justify-end.px-6.pb-16.md:px-[69px] > h1.font-heading.text-[40px].leading-none.tracking-[-0.025em].text-white.md:text-[72px].md:leading-[72px].md:tracking-[-1.8px].mb-6\nclass: font-heading text-[40px] leading-none tracking-[-0.025em] text-white md:text-[72px] md:leading-[72px] md:tracking-[-1.8px] mb-6\nvisible_text: Coverage Area\nbounds_css_px: top=387 left=69 width=1376 height=72\nattributes:\n  class=font-heading text-[40px] leading-none tracking-[-0.025em] text-white md:text-[72px] md:leading-[72px] md:tracking-[-1...\n```\n ubah title ini dan title @\n```browser_element\nThe user selected this node in the browser preview (blue outline in the screenshot).\n\ntag: h2\ndom_path: main > div.bg-canvas > section.px-6.py-16.md:px-[69px][0] > h2.font-heading.text-4xl.leading-none.text-ink.md:text-[48px]\nclass: font-heading text-4xl leading-none text-ink md:text-[48px]\nvisible_text: Is your area within IDEANET coverage?\nbounds_css_px: top=657 left=69 width=1376 height=48\nattributes:\n  class=font-heading text-4xl leading-none text-ink md:text-[48px]\n```\n untuk pakai font heading";
+
+        let projection = TextProjection::new(raw);
+        assert_eq!(projection.mentions.len(), 2);
+        assert_eq!(projection.mentions[0].0.basename, "h1");
+        assert_eq!(projection.mentions[1].0.basename, "h2");
+        assert_eq!(
+            &projection.display,
+            "\u{00A0}◈\u{00A0}h1\u{00A0} ubah title ini dan title \u{00A0}◈\u{00A0}h2\u{00A0} untuk pakai font heading"
+        );
+
+        let (display, spans) = sent_mention_display(raw).expect("browser_element mentions project");
+        assert_eq!(spans.len(), 2);
+        assert_eq!(&display[spans[0].range.clone()], "\u{00A0}◈\u{00A0}h1\u{00A0}");
+        assert_eq!(&display[spans[1].range.clone()], "\u{00A0}◈\u{00A0}h2\u{00A0}");
+        assert_eq!(
+            display,
+            "\u{00A0}◈\u{00A0}h1\u{00A0} ubah title ini dan title \u{00A0}◈\u{00A0}h2\u{00A0} untuk pakai font heading"
         );
     }
 

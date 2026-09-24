@@ -902,6 +902,33 @@ impl NativePage {
                     return path.join(' > ');
                 }}
 
+                function getDomPath(el) {{
+                    if (!(el instanceof Element)) return '';
+                    let path = [];
+                    let curr = el;
+                    while (curr && curr.nodeType === Node.ELEMENT_NODE && curr !== document.documentElement && curr !== document.body) {{
+                        let seg = curr.nodeName.toLowerCase();
+                        let classes = (typeof curr.className === 'string' ? curr.className : (curr.className && curr.className.baseVal) || '').trim();
+                        if (classes) {{
+                            let cls = classes.split(/\s+/).filter(Boolean).join('.');
+                            if (cls) seg += '.' + cls;
+                        }}
+                        let parent = curr.parentElement;
+                        if (parent) {{
+                            let sameTagSiblings = Array.from(parent.children).filter(c => c.nodeName === curr.nodeName);
+                            if (sameTagSiblings.length > 1) {{
+                                let idx = sameTagSiblings.indexOf(curr);
+                                if (idx >= 0) {{
+                                    seg += '[' + idx + ']';
+                                }}
+                            }}
+                        }}
+                        path.unshift(seg);
+                        curr = curr.parentElement;
+                    }}
+                    return path.join(' > ');
+                }}
+
                 let currentAnchorRect = null;
                 let savedRange = null;
 
@@ -1223,23 +1250,34 @@ impl NativePage {
                 }}
 
                 function formatElementPrompt(info) {{
-                    let desc = info.tag || 'element';
-                    if (info.id) {{
-                        desc += '#' + info.id;
+                    let lines = [
+                        '@',
+                        '```browser_element',
+                        'The user selected this node in the browser preview (blue outline in the screenshot).',
+                        '',
+                        'tag: ' + (info.tag || 'element')
+                    ];
+                    let domPath = info.domPath || info.selector;
+                    if (domPath) {{
+                        lines.push('dom_path: ' + domPath);
                     }}
                     if (info.classes) {{
-                        let cls = info.classes.trim().split(/\s+/).filter(Boolean).join('.');
-                        if (cls) desc += '.' + cls;
+                        lines.push('class: ' + info.classes);
                     }}
-                    if (desc === (info.tag || 'element') && info.selector) {{
-                        desc = info.selector;
+                    if (info.text) {{
+                        lines.push('visible_text: ' + info.text);
                     }}
-                    let txt = (info.text || '').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ').trim();
-                    if (txt) {{
-                        return '[Element: ' + desc + ' "' + txt + '"]';
-                    }} else {{
-                        return '[Element: ' + desc + ']';
+                    if (info.bounds) {{
+                        lines.push('bounds_css_px: ' + info.bounds);
                     }}
+                    if (info.attributes && info.attributes.length > 0) {{
+                        lines.push('attributes:');
+                        for (let attr of info.attributes) {{
+                            lines.push('  ' + attr);
+                        }}
+                    }}
+                    lines.push('```');
+                    return lines.join('\n');
                 }}
 
                 function getPromptText() {{
@@ -1249,12 +1287,17 @@ impl NativePage {
                             result += node.textContent.replace(/\u00A0/g, ' ');
                         }} else if (node.nodeType === Node.ELEMENT_NODE) {{
                             if (node.classList && node.classList.contains('__zeron_inline_pill__')) {{
+                                let prompt = '';
                                 if (node.__item && node.__item.info) {{
-                                    result += formatElementPrompt(node.__item.info);
+                                    prompt = formatElementPrompt(node.__item.info);
                                 }} else {{
                                     let tag = node.dataset.tag || node.textContent || 'element';
-                                    result += '[Element: ' + tag + ']';
+                                    prompt = formatElementPrompt({{ tag }});
                                 }}
+                                if (result.length > 0 && !result.endsWith(' ') && !result.endsWith('\n')) {{
+                                    result += ' ';
+                                }}
+                                result += prompt + '\n';
                             }} else if (node.tagName === 'BR') {{
                                 result += '\n';
                             }} else {{
@@ -1298,6 +1341,9 @@ impl NativePage {
                             classes: s.info.classes || '',
                             selector: s.info.selector || '',
                             text: s.info.text || '',
+                            dom_path: s.info.domPath || s.info.selector || '',
+                            bounds: s.info.bounds || '',
+                            attributes: s.info.attributes || [],
                             x: Math.max(0, s.rect.left),
                             y: Math.max(0, s.rect.top),
                             w: Math.max(0, s.rect.width),
@@ -1308,7 +1354,7 @@ impl NativePage {
                     let unionH = Math.max(10, maxY - minY);
                     let fullPrompt = formatElementPrompt(primary.info);
                     if (promptText) {{
-                        fullPrompt += ' ' + promptText;
+                        fullPrompt += '\n ' + promptText;
                     }}
                     let payload = {{
                         action: 'inspect_submit',
@@ -1319,6 +1365,9 @@ impl NativePage {
                             classes: primary.info.classes || '',
                             selector: primary.info.selector || '',
                             text: primary.info.text || '',
+                            dom_path: primary.info.domPath || primary.info.selector || '',
+                            bounds: primary.info.bounds || '',
+                            attributes: primary.info.attributes || [],
                             x: Math.max(0, minX),
                             y: Math.max(0, minY),
                             w: Math.min(window.innerWidth, unionW),
@@ -1566,10 +1615,11 @@ impl NativePage {
                         let w = Math.abs(e.clientX - startX);
                         let h = Math.abs(e.clientY - startY);
                         if (w >= 10 && h >= 10) {{
+                            let bounds = 'top=' + Math.round(t) + ' left=' + Math.round(l) + ' width=' + Math.round(w) + ' height=' + Math.round(h);
                             addElement(
                                 null,
                                 {{ left: l, top: t, width: w, height: h, bottom: t + h, right: l + w }},
-                                {{ tag: 'area', id: '', classes: '', selector: 'area', text: '' }}
+                                {{ tag: 'area', id: '', classes: '', selector: 'area', text: '', domPath: 'area', bounds, attributes: [] }}
                             );
                         }}
                         return;
@@ -1595,12 +1645,24 @@ impl NativePage {
                         let tag = el.tagName.toLowerCase();
                         let id = el.id || '';
                         let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
-                        let text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 100);
+                        let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 200);
                         let selector = getSelector(el);
+                        let domPath = getDomPath(el);
+                        let bounds = 'top=' + Math.round(rect.top) + ' left=' + Math.round(rect.left) + ' width=' + Math.round(rect.width) + ' height=' + Math.round(rect.height);
+                        let attributes = [];
+                        if (el.attributes) {{
+                            for (let i = 0; i < el.attributes.length; i++) {{
+                                let attr = el.attributes[i];
+                                if (attr.name.startsWith('__zeron_')) continue;
+                                let val = attr.value;
+                                if (val.length > 200) val = val.slice(0, 197) + '...';
+                                attributes.push(attr.name + '=' + val);
+                            }}
+                        }}
                         addElement(
                             el,
                             {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }},
-                            {{ tag, id, classes, selector, text }}
+                            {{ tag, id, classes, selector, text, domPath, bounds, attributes }}
                         );
                     }}
                 }}

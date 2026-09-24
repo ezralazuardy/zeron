@@ -33,6 +33,12 @@ pub struct InspectedElement {
     pub selector: String,
     pub text: String,
     #[serde(default)]
+    pub dom_path: Option<String>,
+    #[serde(default)]
+    pub bounds: Option<String>,
+    #[serde(default)]
+    pub attributes: Vec<String>,
+    #[serde(default)]
     pub screenshot: Option<Vec<u8>>,
     #[serde(default)]
     pub user_prompt: Option<String>,
@@ -49,31 +55,50 @@ pub struct ConsoleLogEntry {
 
 impl InspectedElement {
     pub fn single_prompt_context(&self) -> String {
-        let mut desc = self.tag.clone();
-        if !self.id.is_empty() {
-            desc.push('#');
-            desc.push_str(&self.id);
+        let tag = if self.tag.is_empty() { "element" } else { &self.tag };
+        let mut lines = vec![
+            "@".to_string(),
+            "```browser_element".to_string(),
+            "The user selected this node in the browser preview (blue outline in the screenshot).".to_string(),
+            String::new(),
+            format!("tag: {tag}"),
+        ];
+        let dom_path = self
+            .dom_path
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(if !self.selector.is_empty() { &self.selector } else { "" });
+        if !dom_path.is_empty() {
+            lines.push(format!("dom_path: {dom_path}"));
         }
         if !self.classes.is_empty() {
-            for cls in self.classes.split_whitespace() {
-                desc.push('.');
-                desc.push_str(cls);
-            }
-        }
-        if desc == self.tag && !self.selector.is_empty() {
-            desc = self.selector.clone();
+            lines.push(format!("class: {}", self.classes));
         }
         if !self.text.is_empty() {
-            format!("[Element: {} \"{}\"] ", desc, self.text)
-        } else {
-            format!("[Element: {}] ", desc)
+            lines.push(format!("visible_text: {}", self.text));
         }
+        if let Some(bounds) = &self.bounds {
+            if !bounds.is_empty() {
+                lines.push(format!("bounds_css_px: {bounds}"));
+            }
+        }
+        if !self.attributes.is_empty() {
+            lines.push("attributes:".to_string());
+            for attr in &self.attributes {
+                lines.push(format!("  {attr}"));
+            }
+        }
+        lines.push("```".to_string());
+        lines.join("\n")
     }
 
     pub fn to_prompt_context(&self) -> String {
         if self.elements.len() > 1 {
             let mut result = String::new();
-            for elem in &self.elements {
+            for (idx, elem) in self.elements.iter().enumerate() {
+                if idx > 0 {
+                    result.push_str("\n\n");
+                }
                 result.push_str(&elem.single_prompt_context());
             }
             result
@@ -343,14 +368,15 @@ mod tests {
             classes: "btn btn-primary".into(),
             selector: "form > button#submit".into(),
             text: "Submit Form".into(),
-            screenshot: None,
-            user_prompt: None,
-            elements: Vec::new(),
+            ..Default::default()
         };
-        assert_eq!(
-            el.to_prompt_context(),
-            "[Element: button#submit.btn.btn-primary \"Submit Form\"] "
-        );
+        let ctx = el.to_prompt_context();
+        assert!(ctx.starts_with("@\n```browser_element\n"));
+        assert!(ctx.contains("tag: button"));
+        assert!(ctx.contains("dom_path: form > button#submit"));
+        assert!(ctx.contains("class: btn btn-primary"));
+        assert!(ctx.contains("visible_text: Submit Form"));
+        assert!(ctx.ends_with("```"));
 
         // Selector fallback when no id or classes
         let el_selector = InspectedElement {
@@ -359,14 +385,12 @@ mod tests {
             classes: "".into(),
             selector: "main > section:nth-of-type(2)".into(),
             text: "Hero Content".into(),
-            screenshot: None,
-            user_prompt: None,
-            elements: Vec::new(),
+            ..Default::default()
         };
-        assert_eq!(
-            el_selector.to_prompt_context(),
-            "[Element: main > section:nth-of-type(2) \"Hero Content\"] "
-        );
+        let ctx_sel = el_selector.to_prompt_context();
+        assert!(ctx_sel.contains("tag: div"));
+        assert!(ctx_sel.contains("dom_path: main > section:nth-of-type(2)"));
+        assert!(ctx_sel.contains("visible_text: Hero Content"));
 
         // Element without text
         let el_no_text = InspectedElement {
@@ -375,11 +399,12 @@ mod tests {
             classes: "".into(),
             selector: "input#search".into(),
             text: "".into(),
-            screenshot: None,
-            user_prompt: None,
-            elements: Vec::new(),
+            ..Default::default()
         };
-        assert_eq!(el_no_text.to_prompt_context(), "[Element: input#search] ");
+        let ctx_no_text = el_no_text.to_prompt_context();
+        assert!(ctx_no_text.contains("tag: input"));
+        assert!(ctx_no_text.contains("dom_path: input#search"));
+        assert!(!ctx_no_text.contains("visible_text"));
 
         // Serde roundtrip for IPC payload compatibility
         let json = r#"{"tag":"span","id":"badge","classes":"pill active","selector":"span#badge","text":"5","user_prompt":"change color"}"#;
@@ -480,9 +505,7 @@ mod tests {
             classes: "".into(),
             selector: "h1#title".into(),
             text: "Main Heading".into(),
-            screenshot: None,
-            user_prompt: None,
-            elements: Vec::new(),
+            ..Default::default()
         };
         let el2 = InspectedElement {
             tag: "a".into(),
@@ -490,9 +513,7 @@ mod tests {
             classes: "nav-link".into(),
             selector: "nav > a.nav-link".into(),
             text: "Documentation".into(),
-            screenshot: None,
-            user_prompt: None,
-            elements: Vec::new(),
+            ..Default::default()
         };
         let multi = InspectedElement {
             tag: el1.tag.clone(),
@@ -500,13 +521,17 @@ mod tests {
             classes: el1.classes.clone(),
             selector: el1.selector.clone(),
             text: el1.text.clone(),
-            screenshot: None,
             user_prompt: Some("adjust styling".into()),
             elements: vec![el1, el2],
+            ..Default::default()
         };
-        assert_eq!(
-            multi.to_prompt_context(),
-            "[Element: h1#title \"Main Heading\"] [Element: a.nav-link \"Documentation\"] "
-        );
+        let ctx = multi.to_prompt_context();
+        assert!(ctx.contains("tag: h1"));
+        assert!(ctx.contains("dom_path: h1#title"));
+        assert!(ctx.contains("visible_text: Main Heading"));
+        assert!(ctx.contains("tag: a"));
+        assert!(ctx.contains("dom_path: nav > a.nav-link"));
+        assert!(ctx.contains("class: nav-link"));
+        assert!(ctx.contains("visible_text: Documentation"));
     }
 }
