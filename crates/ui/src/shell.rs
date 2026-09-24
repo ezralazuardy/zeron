@@ -1812,6 +1812,11 @@ impl Shell {
                         browser.update(cx, |b, _| b.clear_selection());
                     }
                 }
+                ComposerEvent::ClearBrowserSelection => {
+                    for browser in this.browsers.values() {
+                        browser.update(cx, |b, _| b.clear_selection());
+                    }
+                }
             }
         });
         // Spawn chips open their subagent's transcript as a right-pane tab.

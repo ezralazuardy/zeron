@@ -861,6 +861,9 @@ impl NativePage {
                         overlay.style.display = 'none';
                         badge.style.display = 'none';
                         hoveredEl = null;
+                        selectedEl = null;
+                        let sel = document.getElementById('__zeron_design_selected__');
+                        if (sel) sel.style.display = 'none';
                     }}
                 }};
 

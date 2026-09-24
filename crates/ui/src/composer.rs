@@ -4764,6 +4764,7 @@ pub enum ComposerEvent {
         chat_id: String,
         message_id: String,
     },
+    ClearBrowserSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5500,6 +5501,8 @@ pub struct Composer {
     /// Set on every session/route change: flips committed before this instant
     /// SNAP instead of morphing (see [`ROUTE_SNAP_MS`]).
     route_snap_until: Option<Instant>,
+    /// Number of element mentions in the active composer text.
+    last_element_mention_count: usize,
     _observe: Subscription,
     _pickers_observe: Subscription,
     _picker_focus: Subscription,
@@ -5710,6 +5713,7 @@ impl Composer {
             height_morph: None,
             morph_clock: Instant::now(),
             route_snap_until: None,
+            last_element_mention_count: 0,
             _observe: observe,
             _pickers_observe: pickers_observe,
             _picker_focus: picker_focus,
@@ -5937,15 +5941,48 @@ impl Composer {
         }
     }
 
-    fn remove_attachment(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn remove_attachment(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.queue_edit_finishing {
             return;
         }
+        let mut was_inspection = false;
         if let Some(list) = self.attachments.get_mut(&self.current_key) {
+            if let Some(att) = list.iter().find(|a| a.id == id) {
+                if att.name.ends_with("-inspection.png") {
+                    was_inspection = true;
+                }
+            }
             list.retain(|a| a.id != id);
             if list.is_empty() {
                 self.attachments.remove(&self.current_key);
             }
+        }
+        if was_inspection {
+            let has_other_inspection = self
+                .attachments
+                .get(&self.current_key)
+                .map_or(false, |list| list.iter().any(|a| a.name.ends_with("-inspection.png")));
+            if !has_other_inspection {
+                self.input.update(cx, |input, cx| {
+                    let cur_text = input.text().to_string();
+                    let links = element_mention_links(&cur_text);
+                    if !links.is_empty() {
+                        let mut new_text = String::new();
+                        let mut at = 0;
+                        for link in &links {
+                            new_text.push_str(&cur_text[at..link.range.start]);
+                            at = link.range.end;
+                            if cur_text[at..].starts_with(' ') {
+                                at += 1;
+                            }
+                        }
+                        new_text.push_str(&cur_text[at..]);
+                        input.set_text(new_text.trim_start().to_string(), cx);
+                    }
+                });
+                self.last_element_mention_count = 0;
+            }
+            cx.emit(ComposerEvent::ClearBrowserSelection);
         }
         cx.notify();
     }
@@ -6617,6 +6654,21 @@ impl Composer {
     }
 
     fn on_input_edited(&mut self, cx: &mut Context<Self>) {
+        let input_text = self.input.read(cx).text().to_string();
+        let current_element_count = element_mention_links(&input_text).len();
+        if current_element_count < self.last_element_mention_count {
+            if current_element_count == 0 {
+                if let Some(list) = self.attachments.get_mut(&self.current_key) {
+                    list.retain(|a| !a.name.ends_with("-inspection.png"));
+                    if list.is_empty() {
+                        self.attachments.remove(&self.current_key);
+                    }
+                }
+            }
+            cx.emit(ComposerEvent::ClearBrowserSelection);
+        }
+        self.last_element_mention_count = current_element_count;
+
         if self.wizard.is_some() {
             if self.mention.token.is_some() || self.mention_task.is_some() {
                 self.reset_mention(None, cx);
@@ -7447,6 +7499,7 @@ impl Composer {
                 self.last_rendered_height = 0.0;
                 self.route_snap_until = Some(Instant::now() + Duration::from_millis(ROUTE_SNAP_MS));
             }
+            self.last_element_mention_count = element_mention_links(&draft).len();
             self.input.update(cx, |input, cx| input.set_text(draft, cx));
         }
 
@@ -13851,6 +13904,60 @@ mod appshot_rebase_tests {
             assert_eq!(composer.staged_appshots().len(), 2);
             assert_eq!(composer.input.read(cx).text(), "original\n\nedited");
         });
+    }
+
+    #[gpui::test]
+    fn removing_element_mention_or_attachment_clears_browser_selection(cx: &mut TestAppContext) {
+        let state = cx.new(|_| AppState::new());
+        let composer = cx.new(|cx| Composer::new(state, cx));
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let _subscription = cx.update(|cx| {
+            cx.subscribe(&composer, move |_, event: &ComposerEvent, _| {
+                captured.borrow_mut().push(event.clone());
+            })
+        });
+
+        // 1. Add element mention and inspection attachment
+        composer.update(cx, |composer, cx| {
+            composer.input.update(cx, |input, cx| {
+                input.set_text(r#"[Element: button#submit "Submit"] some text"#, cx);
+            });
+            let staged = attachments::stage_png_bytes("button-inspection.png".into(), vec![0u8; 8]);
+            composer.add_staged_attachment(staged, cx);
+        });
+        events.borrow_mut().clear();
+
+        // 2. Remove the element mention from text -> should emit ClearBrowserSelection and remove attachment
+        composer.update(cx, |composer, cx| {
+            composer.input.update(cx, |input, cx| {
+                input.set_text("some text", cx);
+            });
+        });
+        assert!(events.borrow().iter().any(|e| matches!(e, ComposerEvent::ClearBrowserSelection)));
+        composer.update(cx, |composer, _| {
+            assert!(composer.attachments.get(&composer.current_key).is_none());
+        });
+
+        // 3. Reverse: add both, and remove the attachment -> should clear mention & selection
+        events.borrow_mut().clear();
+        let att_id = composer.update(cx, |composer, cx| {
+            composer.input.update(cx, |input, cx| {
+                input.set_text(r#"[Element: h1 "Title"] more text"#, cx);
+            });
+            let staged = attachments::stage_png_bytes("h1-inspection.png".into(), vec![0u8; 8]);
+            let id = staged.id.clone();
+            composer.add_staged_attachment(staged, cx);
+            id
+        });
+        events.borrow_mut().clear();
+
+        composer.update(cx, |composer, cx| {
+            composer.remove_attachment(&att_id, cx);
+            assert!(composer.attachments.get(&composer.current_key).is_none());
+            assert!(!composer.input.read(cx).text().contains("[Element:"));
+        });
+        assert!(events.borrow().iter().any(|e| matches!(e, ComposerEvent::ClearBrowserSelection)));
     }
 }
 

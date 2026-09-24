@@ -276,6 +276,9 @@ impl BrowserSurface {
         if let Some(native) = &self.native {
             native.set_design_mode(self.design_mode);
         }
+        if !self.design_mode {
+            self.clear_selection();
+        }
         cx.notify();
     }
 
