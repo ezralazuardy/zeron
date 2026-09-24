@@ -947,6 +947,115 @@ fn file_mention_links(text: &str) -> Vec<FileMentionLink> {
         .collect()
 }
 
+fn parse_element_details(inner: &str) -> (String, String) {
+    let path = format!("[Element: {}]", inner.trim());
+    let mut desc = inner.trim();
+    if let Some(quote_pos) = desc.find('"') {
+        desc = desc[..quote_pos].trim();
+    }
+    let last_segment = desc.rsplit('>').next().unwrap_or(desc).trim();
+
+    let basename = if let Some(hash_pos) = last_segment.find('#') {
+        let tag = &last_segment[..hash_pos];
+        let after_hash = &last_segment[hash_pos + 1..];
+        let id_end = after_hash
+            .find(|c: char| c == '.' || c == '[' || c == ':' || c.is_whitespace())
+            .unwrap_or(after_hash.len());
+        let id = &after_hash[..id_end];
+        if tag.is_empty() {
+            format!("#{id}")
+        } else {
+            format!("{tag}#{id}")
+        }
+    } else if let Some(dot_pos) = last_segment.find('.') {
+        let tag = &last_segment[..dot_pos];
+        let after_dot = &last_segment[dot_pos + 1..];
+        let class_end = after_dot
+            .find(|c: char| c == '.' || c == '[' || c == ':' || c.is_whitespace())
+            .unwrap_or(after_dot.len());
+        let first_class = &after_dot[..class_end];
+        if first_class.is_empty() {
+            if tag.is_empty() {
+                "element".to_string()
+            } else {
+                tag.to_string()
+            }
+        } else if tag.is_empty() {
+            format!(".{first_class}")
+        } else {
+            format!("{tag}.{first_class}")
+        }
+    } else {
+        let tag_end = last_segment
+            .find(|c: char| c == ':' || c == '[' || c.is_whitespace())
+            .unwrap_or(last_segment.len());
+        let tag = &last_segment[..tag_end];
+        if tag.is_empty() {
+            "element".to_string()
+        } else {
+            tag.to_string()
+        }
+    };
+
+    (basename, path)
+}
+
+fn element_mention_links(text: &str) -> Vec<FileMentionLink> {
+    if !text.contains("[Element: ") {
+        return Vec::new();
+    }
+    let mut links = Vec::new();
+    let marker = "[Element: ";
+    let mut search_from = 0;
+    while let Some(rel_start) = text[search_from..].find(marker) {
+        let start = search_from + rel_start;
+        let content_start = start + marker.len();
+        let mut depth = 1usize;
+        let mut in_quotes = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (i, ch) in text[content_start..].char_indices() {
+            if in_quotes {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    in_quotes = false;
+                }
+            } else {
+                match ch {
+                    '"' => in_quotes = true,
+                    '[' => depth += 1,
+                    ']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(content_start + i + 1);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let Some(end_idx) = end else {
+            search_from = content_start;
+            continue;
+        };
+        let inner = &text[content_start..end_idx - 1];
+        let (basename, path) = parse_element_details(inner);
+        links.push(FileMentionLink {
+            range: start..end_idx,
+            basename,
+            path,
+            is_dir: false,
+            prefix: '◈',
+        });
+        search_from = end_idx;
+    }
+    links
+}
+
 #[derive(Debug, Clone, Default)]
 struct TextProjection {
     display: String,
@@ -1192,6 +1301,7 @@ impl TextProjection {
                     prefix: invocation.prefix(),
                 }),
         );
+        links.extend(element_mention_links(raw));
         links.sort_by_key(|link| link.range.start);
         let labels = mention_display_labels(&links);
         let labels = if compact {
@@ -1206,10 +1316,11 @@ impl TextProjection {
             .map(|(link, label)| {
                 let label = label.replace(' ', "\u{00A0}");
                 let marker = link.prefix;
+                let sep = if marker == '◈' { "\u{00A0}" } else { "" };
                 let pad = MENTION_SIDE_PAD;
                 (
                     link.range.clone(),
-                    format!("{pad}{marker}{label}{pad}"),
+                    format!("{pad}{marker}{sep}{label}{pad}"),
                     Some(link),
                 )
             })
@@ -1340,6 +1451,9 @@ fn mention_display_labels(links: &[FileMentionLink]) -> Vec<String> {
             labels
                 .entry((link.prefix, &link.basename, &link.path))
                 .or_insert_with(|| {
+                    if link.prefix == '◈' {
+                        return link.basename.clone();
+                    }
                     let duplicates: Vec<_> = groups[&(link.prefix, link.basename.as_str())]
                         .iter()
                         .filter(|other| other.path != link.path)
@@ -1396,6 +1510,7 @@ pub struct SentMentionSpan {
 pub fn sent_mention_display(raw: &str) -> Option<(String, Vec<SentMentionSpan>)> {
     if !raw.contains(FILE_MENTION_SCHEME)
         && !raw.contains(zeron_proto::invocation::INVOCATION_SCHEME)
+        && !raw.contains("[Element: ")
     {
         return None;
     }
@@ -12633,6 +12748,22 @@ mod tests {
         assert_eq!(spans[0].path.as_ref(), "src/composer.rs");
         assert!(spans[1].is_dir);
         assert_eq!(spans[1].path.as_ref(), "src/components/");
+    }
+
+    #[test]
+    fn element_mention_projection_and_parsing() {
+        let raw = r#"[Element: h1.font-heading.text-[40px].leading-[1].tracking-[-0.025em].text-white.md:text-[72px].md:leading-[72px].md:tracking-[-1.8px] "Powering Networks, Enabling Growth."] change color"#;
+        let projection = TextProjection::new(raw);
+        assert_eq!(projection.mentions.len(), 1);
+        let (link, chip) = &projection.mentions[0];
+        assert_eq!(link.prefix, '◈');
+        assert_eq!(link.basename, "h1.font-heading");
+        assert_eq!(&projection.display[chip.clone()], "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0}");
+        assert_eq!(&projection.display, "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0} change color");
+
+        let (display, spans) = sent_mention_display(raw).expect("element mention projects");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&display[spans[0].range.clone()], "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0}");
     }
 
     /// Ordinary prompts must stay on the zero-cost path, including ones that

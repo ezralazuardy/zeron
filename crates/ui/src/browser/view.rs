@@ -457,7 +457,7 @@ impl Render for BrowserSurface {
                 .border_color(theme.accent)
         })
         .when(has_page, |el| {
-            el.on_click(cx.listener(|this, _, window, cx| this.toggle_design_mode(window, cx)))
+            el.on_click(cx.listener(|this, _, _, cx| this.toggle_design_mode_force(cx)))
         });
         let address = surface_chrome::input()
             .id("browser-address")
@@ -524,8 +524,9 @@ impl Render for BrowserSurface {
             el.on_click(cx.listener(|this, _, _, cx| this.open_external(cx)))
         });
         let toolbar = surface_chrome::toolbar(&theme)
-            .when(!external, |el| el.child(back).child(forward).child(reload).child(design))
+            .when(!external, |el| el.child(back).child(forward).child(reload))
             .child(address)
+            .when(!external, |el| el.child(design))
             .child(open);
 
         let body = div()
@@ -667,42 +668,6 @@ impl Render for BrowserSurface {
             .on_action(cx.listener(|this, _: &super::Forward, _, _| this.history(true)))
             .on_action(cx.listener(|this, _: &super::ToggleDesignMode, w, cx| this.toggle_design_mode(w, cx)))
             .child(toolbar)
-            .when(self.design_mode, |el| {
-                el.child(
-                    div()
-                        .px(px(12.0))
-                        .py(px(6.0))
-                        .bg(theme.accent.opacity(0.12))
-                        .border_b_1()
-                        .border_color(theme.accent.opacity(0.3))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(icons::icon(icons::MAGIC_STICK_3).size(px(12.0)).text_color(theme.accent))
-                                .child(
-                                    div()
-                                        .text_size(crate::typography::ui_rems(11.0))
-                                        .text_color(theme.accent)
-                                        .child("Design Mode active — Click any element to add context to chat"),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("browser-design-mode-exit")
-                                .cursor_pointer()
-                                .text_size(crate::typography::ui_rems(10.0))
-                                .text_color(theme.text_muted)
-                                .hover(|s| s.text_color(theme.text))
-                                .on_click(cx.listener(|this, _, w, cx| this.toggle_design_mode(w, cx)))
-                                .child("Exit"),
-                        ),
-                )
-            })
             .when_some(self.validation.clone(), |el, message| el.child(div().px(px(12.0)).py(px(8.0)).text_size(crate::typography::ui_rems(11.0)).text_color(theme.danger).child(message)))
             .when(remote_loopback, |el| el.child(div().px(px(12.0)).py(px(8.0)).border_b_1().border_color(theme.border)
                 .text_size(crate::typography::ui_rems(11.0)).text_color(theme.text_muted)

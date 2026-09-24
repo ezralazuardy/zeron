@@ -293,6 +293,12 @@ impl NativePage {
     pub fn set_design_mode(&self, enabled: bool) {
         self.command(json!({"cmd":"design-mode","enabled":enabled}));
     }
+    pub fn is_focused(&self) -> bool {
+        false
+    }
+    pub fn clear_selection(&self) {
+        self.command(json!({"cmd":"clear-design-selection"}));
+    }
     pub fn evaluate_with_result(
         &self,
         _script: &str,

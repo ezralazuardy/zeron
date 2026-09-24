@@ -541,7 +541,7 @@ impl NativePage {
             };
             let browser_key = matches!(
                 combo.as_str(),
-                "cmd-l" | "cmd-t" | "cmd-w" | "cmd-[" | "cmd-]" | "cmd-shift-r" | "cmd-k" | "cmd-,"
+                "cmd-l" | "cmd-t" | "cmd-w" | "cmd-[" | "cmd-]" | "cmd-shift-r" | "cmd-k" | "cmd-," | "cmd-shift-d"
             );
             let app_key = monitor_shortcuts
                 .borrow()
@@ -704,11 +704,37 @@ impl NativePage {
                 badge.style.display = 'none';
                 badge.style.whiteSpace = 'nowrap';
 
+                let selectedOverlay = document.createElement('div');
+                selectedOverlay.id = '__zeron_design_selected__';
+                selectedOverlay.style.position = 'fixed';
+                selectedOverlay.style.pointerEvents = 'none';
+                selectedOverlay.style.zIndex = '2147483646';
+                selectedOverlay.style.border = '2px solid #3b82f6';
+                selectedOverlay.style.boxShadow = '0 0 0 1px rgba(59, 130, 246, 0.4)';
+                selectedOverlay.style.borderRadius = '2px';
+                selectedOverlay.style.display = 'none';
+                selectedOverlay.style.transition = 'all 0.05s ease';
+
                 document.documentElement.appendChild(overlay);
                 document.documentElement.appendChild(badge);
+                document.documentElement.appendChild(selectedOverlay);
 
                 let hoveredEl = null;
+                let selectedEl = null;
                 let rafId = null;
+
+                function updateSelected() {{
+                    if (!selectedEl) {{
+                        if (selectedOverlay) selectedOverlay.style.display = 'none';
+                        return;
+                    }}
+                    let rect = selectedEl.getBoundingClientRect();
+                    selectedOverlay.style.left = rect.left + 'px';
+                    selectedOverlay.style.top = rect.top + 'px';
+                    selectedOverlay.style.width = rect.width + 'px';
+                    selectedOverlay.style.height = rect.height + 'px';
+                    selectedOverlay.style.display = 'block';
+                }}
 
                 function getSelector(el) {{
                     if (!(el instanceof Element)) return '';
@@ -737,7 +763,7 @@ impl NativePage {
                     if (rafId) cancelAnimationFrame(rafId);
                     rafId = requestAnimationFrame(() => {{
                         let target = document.elementFromPoint(e.clientX, e.clientY);
-                        if (!target || target === overlay || target === badge || target === document.documentElement || target === document.body) {{
+                        if (!target || target === overlay || target === badge || target === selectedOverlay || target === document.documentElement || target === document.body) {{
                             overlay.style.display = 'none';
                             badge.style.display = 'none';
                             hoveredEl = null;
@@ -754,9 +780,9 @@ impl NativePage {
                         let tag = target.tagName.toLowerCase();
                         let rawCls = typeof target.className === 'string' ? target.className : (target.className && target.className.baseVal) || '';
                         let cls = rawCls.trim()
-                            ? '.' + rawCls.trim().split(/\s+/).filter(Boolean).slice(0, 2).join('.')
+                            ? '.' + rawCls.trim().split(/\\s+/).filter(Boolean).slice(0, 2).join('.')
                             : '';
-                        let textDim = Math.round(rect.width) + ' \u00d7 ' + Math.round(rect.height);
+                        let textDim = Math.round(rect.width) + ' \\u00d7 ' + Math.round(rect.height);
                         badge.textContent = tag + cls + ' (' + textDim + ')';
                         let badgeTop = rect.top - 22;
                         if (badgeTop < 2) badgeTop = rect.bottom + 4;
@@ -767,16 +793,20 @@ impl NativePage {
                 }}
 
                 function onScroll() {{
-                    if (!active || !hoveredEl) return;
-                    let rect = hoveredEl.getBoundingClientRect();
-                    overlay.style.left = rect.left + 'px';
-                    overlay.style.top = rect.top + 'px';
-                    overlay.style.width = rect.width + 'px';
-                    overlay.style.height = rect.height + 'px';
-                    let badgeTop = rect.top - 22;
-                    if (badgeTop < 2) badgeTop = rect.bottom + 4;
-                    badge.style.left = Math.max(2, rect.left) + 'px';
-                    badge.style.top = badgeTop + 'px';
+                    if (active && hoveredEl) {{
+                        let rect = hoveredEl.getBoundingClientRect();
+                        overlay.style.left = rect.left + 'px';
+                        overlay.style.top = rect.top + 'px';
+                        overlay.style.width = rect.width + 'px';
+                        overlay.style.height = rect.height + 'px';
+                        let badgeTop = rect.top - 22;
+                        if (badgeTop < 2) badgeTop = rect.bottom + 4;
+                        badge.style.left = Math.max(2, rect.left) + 'px';
+                        badge.style.top = badgeTop + 'px';
+                    }}
+                    if (selectedEl) {{
+                        updateSelected();
+                    }}
                 }}
 
                 function onClick(e) {{
@@ -785,11 +815,14 @@ impl NativePage {
                     e.stopPropagation();
 
                     let el = hoveredEl;
+                    selectedEl = el;
+                    updateSelected();
+
                     let rect = el.getBoundingClientRect();
                     let tag = el.tagName.toLowerCase();
                     let id = el.id || '';
                     let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
-                    let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                    let text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 100);
                     let selector = getSelector(el);
 
                     let payload = {{
@@ -825,8 +858,17 @@ impl NativePage {
                     }}
                 }};
 
+                window.__zeron_clear_design_selection = function() {{
+                    selectedEl = null;
+                    let sel = document.getElementById('__zeron_design_selected__');
+                    if (sel) sel.style.display = 'none';
+                }};
+
                 window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: true }});
                 window.addEventListener('scroll', onScroll, {{ capture: true, passive: true }});
+                window.addEventListener('resize', () => {{
+                    if (selectedEl) updateSelected();
+                }}, {{ capture: true, passive: true }});
                 window.addEventListener('click', onClick, {{ capture: true }});
             }})();"#
         );
@@ -834,6 +876,22 @@ impl NativePage {
         unsafe {
             host.view.evaluateJavaScript_completionHandler(
                 &NSString::from_str(&script),
+                Some(&completion),
+            );
+        }
+    }
+
+    pub fn is_focused(&self) -> bool {
+        has_focus(&self.0.borrow().view)
+    }
+
+    pub fn clear_selection(&self) {
+        let host = self.0.borrow();
+        let script = "(() => { if (window.__zeron_clear_design_selection) { window.__zeron_clear_design_selection(); } })();";
+        let completion = block2::RcBlock::new(|_: *mut AnyObject, _: *mut NSError| {});
+        unsafe {
+            host.view.evaluateJavaScript_completionHandler(
+                &NSString::from_str(script),
                 Some(&completion),
             );
         }

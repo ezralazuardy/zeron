@@ -1785,6 +1785,9 @@ impl Shell {
                     transcript.update(cx, |t, cx| {
                         t.on_own_send(chat_id.clone(), message_id.clone(), cx)
                     });
+                    for browser in this.browsers.values() {
+                        browser.update(cx, |b, _| b.clear_selection());
+                    }
                 }
                 ComposerEvent::WorktreeSetup {
                     chat_id,
@@ -1805,6 +1808,9 @@ impl Shell {
                     transcript.update(cx, |t, cx| {
                         t.on_own_queued_send(chat_id.clone(), message_id.clone(), cx)
                     });
+                    for browser in this.browsers.values() {
+                        browser.update(cx, |b, _| b.clear_selection());
+                    }
                 }
             }
         });

@@ -252,13 +252,38 @@ impl BrowserSurface {
         cx.notify();
     }
 
-    pub fn toggle_design_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn is_focused(&self, window: &Window) -> bool {
+        if self.focus.is_focused(window) {
+            return true;
+        }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if self.native.as_ref().map_or(false, |n| n.is_focused()) {
+            return true;
+        }
+        false
+    }
+
+    pub fn toggle_design_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_focused(window) {
+            return;
+        }
+        self.toggle_design_mode_force(cx);
+    }
+
+    pub fn toggle_design_mode_force(&mut self, cx: &mut Context<Self>) {
         self.design_mode = !self.design_mode;
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if let Some(native) = &self.native {
             native.set_design_mode(self.design_mode);
         }
         cx.notify();
+    }
+
+    pub fn clear_selection(&mut self) {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if let Some(native) = &self.native {
+            native.clear_selection();
+        }
     }
 
     #[cfg(feature = "browser-fixture")]
