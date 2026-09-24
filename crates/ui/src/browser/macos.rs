@@ -1228,15 +1228,15 @@ impl NativePage {
                         desc += '#' + info.id;
                     }}
                     if (info.classes) {{
-                        let cls = info.classes.trim().split(/\\s+/).filter(Boolean).join('.');
+                        let cls = info.classes.trim().split(/\s+/).filter(Boolean).join('.');
                         if (cls) desc += '.' + cls;
                     }}
                     if (desc === (info.tag || 'element') && info.selector) {{
                         desc = info.selector;
                     }}
-                    let txt = (info.text || '').replace(/"/g, '\\\\\"').replace(/[\\r\\n]+/g, ' ').trim();
+                    let txt = (info.text || '').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ').trim();
                     if (txt) {{
-                        return '[Element: ' + desc + ' \"' + txt + '\"]';
+                        return '[Element: ' + desc + ' "' + txt + '"]';
                     }} else {{
                         return '[Element: ' + desc + ']';
                     }}
@@ -1246,7 +1246,7 @@ impl NativePage {
                     let result = '';
                     function traverse(node) {{
                         if (node.nodeType === Node.TEXT_NODE) {{
-                            result += node.textContent.replace(/\\u00A0/g, ' ');
+                            result += node.textContent.replace(/\u00A0/g, ' ');
                         }} else if (node.nodeType === Node.ELEMENT_NODE) {{
                             if (node.classList && node.classList.contains('__zeron_inline_pill__')) {{
                                 if (node.__item && node.__item.info) {{
@@ -1256,7 +1256,7 @@ impl NativePage {
                                     result += '[Element: ' + tag + ']';
                                 }}
                             }} else if (node.tagName === 'BR') {{
-                                result += '\\n';
+                                result += '\n';
                             }} else {{
                                 for (let child of node.childNodes) {{
                                     traverse(child);
@@ -1265,7 +1265,7 @@ impl NativePage {
                         }}
                     }}
                     traverse(input);
-                    return result.replace(/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/g, '').trim();
+                    return result.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '').trim();
                 }}
 
                 function sanitizeInputText() {{
@@ -1273,8 +1273,8 @@ impl NativePage {
                     let node;
                     let modified = false;
                     while ((node = walker.nextNode())) {{
-                        if (/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/.test(node.textContent)) {{
-                            node.textContent = node.textContent.replace(/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/g, '');
+                        if (/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(node.textContent)) {{
+                            node.textContent = node.textContent.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '');
                             modified = true;
                         }}
                     }}
@@ -1306,9 +1306,13 @@ impl NativePage {
                     }});
                     let unionW = Math.max(10, maxX - minX);
                     let unionH = Math.max(10, maxY - minY);
+                    let fullPrompt = formatElementPrompt(primary.info);
+                    if (promptText) {{
+                        fullPrompt += ' ' + promptText;
+                    }}
                     let payload = {{
                         action: 'inspect_submit',
-                        user_prompt: promptText,
+                        user_prompt: fullPrompt,
                         element: {{
                             tag: primary.info.tag,
                             id: primary.info.id || '',
@@ -1319,7 +1323,7 @@ impl NativePage {
                             y: Math.max(0, minY),
                             w: Math.min(window.innerWidth, unionW),
                             h: Math.min(window.innerHeight, unionH),
-                            user_prompt: promptText,
+                            user_prompt: fullPrompt,
                             elements: elementsList
                         }},
                         elements: elementsList

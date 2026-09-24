@@ -12841,6 +12841,19 @@ mod tests {
         assert_eq!(&display[spans[2].range.clone()], "\u{00A0}◈\u{00A0}a.btn\u{00A0}");
     }
 
+    #[test]
+    fn element_mention_popup_flow_with_tailwind_brackets() {
+        let raw = r#"[Element: h1.font-heading.text-[40px] "Powering Networks, Enabling Growth."] cek title ini dan [Element: p.mt-6.max-w-[500px].text-lg.leading-7.text-white/80.md:text-xl "Delivering reliable infrastructure, and integrated digital solutions for homes, enterprises, and public services across Indonesia."] pakai font apa"#;
+        let projection = TextProjection::new(raw);
+        assert_eq!(projection.mentions.len(), 2);
+        assert_eq!(projection.mentions[0].0.basename, "h1.font-heading");
+        assert_eq!(projection.mentions[1].0.basename, "p.mt-6");
+        assert_eq!(
+            &projection.display,
+            "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0} cek title ini dan \u{00A0}◈\u{00A0}p.mt-6\u{00A0} pakai font apa"
+        );
+    }
+
     /// Ordinary prompts must stay on the zero-cost path, including ones that
     /// merely *talk about* the scheme without containing a valid mention.
     #[test]

@@ -3077,25 +3077,19 @@ impl Shell {
                     let tag = if element.tag.is_empty() { "element" } else { &element.tag };
                     let filename = format!("{tag}-inspection.png");
                     let user_prompt = element.user_prompt.clone().unwrap_or_default();
-                    let prompt = if user_prompt.contains("[Element: ") {
-                        element.single_prompt_context()
+                    let prompt = if !user_prompt.trim().is_empty() {
+                        user_prompt.trim().to_string()
                     } else {
                         element.to_prompt_context()
                     };
                     this.composer.update(cx, |composer, cx| {
                         let cur_text = composer.input.read(cx).text().to_string();
-                        let element_prompt = prompt.trim();
-                        let combined = if user_prompt.trim().is_empty() {
-                            format!("{element_prompt} ")
-                        } else {
-                            format!("{element_prompt} {}", user_prompt.trim())
-                        };
                         let new_text = if cur_text.is_empty() {
-                            combined
+                            prompt
                         } else if cur_text.ends_with(' ') {
-                            format!("{}{}", cur_text, combined)
+                            format!("{}{}", cur_text, prompt)
                         } else {
-                            format!("{} {}", cur_text, combined)
+                            format!("{} {}", cur_text, prompt)
                         };
                         composer.input.update(cx, |input, cx| {
                             input.set_text(new_text, cx);
