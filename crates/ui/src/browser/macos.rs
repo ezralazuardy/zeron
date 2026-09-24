@@ -769,71 +769,64 @@ impl NativePage {
                 popup.style.position = 'fixed';
                 popup.style.zIndex = '2147483647';
                 popup.style.display = 'none';
-                popup.style.flexDirection = 'column';
-                popup.style.alignItems = 'stretch';
-                popup.style.gap = '8px';
+                popup.style.alignItems = 'center';
+                popup.style.gap = '6px';
                 popup.style.background = '#18181b';
                 popup.style.border = '1px solid rgba(255, 255, 255, 0.16)';
-                popup.style.borderRadius = '12px';
-                popup.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3)';
-                popup.style.padding = '8px 10px 8px 10px';
+                popup.style.borderRadius = '9999px';
+                popup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3)';
+                popup.style.padding = '4px 6px 4px 8px';
                 popup.style.boxSizing = 'border-box';
                 popup.style.userSelect = 'none';
                 popup.style.width = '380px';
                 popup.style.maxWidth = 'calc(100vw - 24px)';
                 popup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                popup.style.transition = 'border-radius 0.15s ease, padding 0.15s ease';
 
                 popup.addEventListener('pointerdown', (e) => e.stopPropagation());
                 popup.addEventListener('mousedown', (e) => e.stopPropagation());
                 popup.addEventListener('mouseup', (e) => e.stopPropagation());
                 popup.addEventListener('click', (e) => e.stopPropagation());
 
-                let pillsContainer = document.createElement('div');
-                pillsContainer.className = '__zeron_pills_container__';
-                pillsContainer.style.display = 'flex';
-                pillsContainer.style.flexWrap = 'wrap';
-                pillsContainer.style.alignItems = 'center';
-                pillsContainer.style.gap = '4px';
-                pillsContainer.style.maxHeight = '56px';
-                pillsContainer.style.overflowY = 'auto';
-                pillsContainer.style.scrollbarWidth = 'none';
+                let firstPill = document.createElement('span');
+                firstPill.className = '__zeron_first_pill__';
+                firstPill.style.display = 'none';
+                firstPill.style.alignItems = 'center';
+                firstPill.style.fontSize = '11px';
+                firstPill.style.fontWeight = '600';
+                firstPill.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+                firstPill.style.padding = '2px 7px';
+                firstPill.style.borderRadius = '6px';
+                firstPill.style.flexShrink = '0';
+                firstPill.style.userSelect = 'none';
+                firstPill.style.lineHeight = '14px';
 
-                let input = document.createElement('textarea');
-                input.placeholder = 'Describe the change';
-                input.rows = 1;
+                let input = document.createElement('div');
+                input.id = '__zeron_design_input__';
+                input.contentEditable = 'true';
+                input.setAttribute('role', 'textbox');
+                input.setAttribute('aria-multiline', 'true');
+                input.setAttribute('spellcheck', 'false');
+                input.setAttribute('placeholder', 'Describe the change');
+                input.setAttribute('data-empty', 'true');
                 input.style.background = 'transparent';
                 input.style.border = 'none';
                 input.style.outline = 'none';
-                input.style.resize = 'none';
                 input.style.color = '#ffffff';
                 input.style.fontSize = '13px';
-                input.style.width = '100%';
-                input.style.boxSizing = 'border-box';
+                input.style.flexGrow = '1';
+                input.style.minWidth = '140px';
                 input.style.fontFamily = 'inherit';
                 input.style.lineHeight = '20px';
-                input.style.height = '20px';
                 input.style.minHeight = '20px';
                 input.style.maxHeight = '160px';
                 input.style.overflowY = 'hidden';
+                input.style.wordBreak = 'break-word';
+                input.style.whiteSpace = 'pre-wrap';
                 input.style.padding = '0';
                 input.style.margin = '0';
-
-                let footerRow = document.createElement('div');
-                footerRow.style.display = 'flex';
-                footerRow.style.alignItems = 'center';
-                footerRow.style.justifyContent = 'space-between';
-                footerRow.style.gap = '8px';
-                footerRow.style.marginTop = '2px';
-
-                let hintEl = document.createElement('div');
-                hintEl.className = '__zeron_design_hint__';
-                hintEl.style.fontSize = '11px';
-                hintEl.style.color = 'rgba(255, 255, 255, 0.4)';
-                hintEl.style.userSelect = 'none';
-                hintEl.style.whiteSpace = 'nowrap';
-                hintEl.style.overflow = 'hidden';
-                hintEl.style.textOverflow = 'ellipsis';
-                hintEl.textContent = 'Enter to submit · Shift+Enter newline';
+                input.style.boxSizing = 'border-box';
+                input.style.userSelect = 'text';
 
                 let submitBtn = document.createElement('button');
                 submitBtn.className = '__zeron_submit_btn__';
@@ -855,12 +848,17 @@ impl NativePage {
                 submitBtn.onmouseenter = () => submitBtn.style.opacity = '0.85';
                 submitBtn.onmouseleave = () => submitBtn.style.opacity = '1';
 
-                footerRow.appendChild(hintEl);
-                footerRow.appendChild(submitBtn);
-
-                popup.appendChild(pillsContainer);
+                popup.appendChild(firstPill);
                 popup.appendChild(input);
-                popup.appendChild(footerRow);
+                popup.appendChild(submitBtn);
+
+                let initialStyleTag = document.getElementById('__zeron_design_theme_styles__');
+                if (!initialStyleTag) {{
+                    initialStyleTag = document.createElement('style');
+                    initialStyleTag.id = '__zeron_design_theme_styles__';
+                    document.head.appendChild(initialStyleTag);
+                }}
+                initialStyleTag.textContent = '#__zeron_design_input__:empty::before, #__zeron_design_input__[data-empty="true"]::before {{ content: attr(placeholder); color: rgba(255, 255, 255, 0.4); pointer-events: none; display: inline-block; }} #__zeron_design_input__::-webkit-scrollbar {{ width: 4px; }} #__zeron_design_input__::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 2px; }}';
 
                 document.documentElement.appendChild(overlay);
                 document.documentElement.appendChild(badge);
@@ -905,8 +903,29 @@ impl NativePage {
                 }}
 
                 let currentAnchorRect = null;
+                let savedRange = null;
 
-                function adjustTextareaHeight() {{
+                function saveSelection() {{
+                    let sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {{
+                        let r = sel.getRangeAt(0);
+                        if (input.contains(r.commonAncestorContainer)) {{
+                            savedRange = r.cloneRange();
+                        }}
+                    }}
+                }}
+
+                function updatePlaceholder() {{
+                    let hasPills = input.querySelector('.__zeron_inline_pill__') !== null;
+                    let text = input.innerText.replace(/[\r\n\t\s\u00A0]/g, '');
+                    if (!hasPills && text.length === 0) {{
+                        input.setAttribute('data-empty', 'true');
+                    }} else {{
+                        input.removeAttribute('data-empty');
+                    }}
+                }}
+
+                function adjustInputHeight() {{
                     input.style.height = 'auto';
                     let lineHeight = 20;
                     let minH = 20;
@@ -919,6 +938,22 @@ impl NativePage {
                     }} else {{
                         input.style.overflowY = 'hidden';
                     }}
+
+                    let isMultiLine = sH > 26;
+                    if (isMultiLine) {{
+                        popup.style.borderRadius = '12px';
+                        popup.style.alignItems = 'flex-start';
+                        popup.style.padding = '8px 8px 8px 10px';
+                        firstPill.style.marginTop = '2px';
+                        submitBtn.style.alignSelf = 'flex-end';
+                    }} else {{
+                        popup.style.borderRadius = '9999px';
+                        popup.style.alignItems = 'center';
+                        popup.style.padding = '4px 6px 4px 8px';
+                        firstPill.style.marginTop = '0';
+                        submitBtn.style.alignSelf = 'center';
+                    }}
+
                     updatePopupPosition();
                 }}
 
@@ -941,7 +976,7 @@ impl NativePage {
                     if (!currentAnchorRect) return;
 
                     let popW = popup.offsetWidth || 380;
-                    let popH = popup.offsetHeight || 90;
+                    let popH = popup.offsetHeight || 36;
 
                     let spaceBelow = window.innerHeight - (currentAnchorRect.bottom + 8);
                     let spaceAbove = currentAnchorRect.top - 8;
@@ -968,27 +1003,103 @@ impl NativePage {
                     for (let item of selectedElements) {{
                         if (item.overlayEl && item.overlayEl.parentNode) item.overlayEl.remove();
                         if (item.badgeEl && item.badgeEl.parentNode) item.badgeEl.remove();
-                        if (item.pillEl && item.pillEl.parentNode) item.pillEl.remove();
+                        if (item.pillEl && item.pillEl.parentNode && item.pillEl !== firstPill) item.pillEl.remove();
                     }}
                     selectedElements = [];
                     currentAnchorRect = null;
+                    savedRange = null;
                     if (popup) {{
                         popup.style.display = 'none';
-                        if (input) {{
-                            input.value = '';
-                            input.style.height = '20px';
-                            input.style.overflowY = 'hidden';
+                    }}
+                    if (firstPill) {{
+                        firstPill.style.display = 'none';
+                        firstPill.textContent = '';
+                    }}
+                    if (input) {{
+                        input.innerHTML = '';
+                        input.style.height = '20px';
+                        input.style.overflowY = 'hidden';
+                        updatePlaceholder();
+                    }}
+                }}
+
+                function createInlinePill(item, color) {{
+                    let pill = document.createElement('span');
+                    pill.className = '__zeron_inline_pill__';
+                    pill.contentEditable = 'false';
+                    pill.dataset.tag = item.info.tag || 'element';
+                    pill.__item = item;
+                    pill.style.display = 'inline-flex';
+                    pill.style.alignItems = 'center';
+                    pill.style.background = color.bg;
+                    pill.style.color = color.text;
+                    pill.style.border = '1px solid ' + color.border;
+                    pill.style.borderRadius = '4px';
+                    pill.style.padding = '1px 5px';
+                    pill.style.margin = '0 2px';
+                    pill.style.fontSize = '11px';
+                    pill.style.fontWeight = '600';
+                    pill.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+                    pill.style.lineHeight = '14px';
+                    pill.style.userSelect = 'none';
+                    pill.style.verticalAlign = 'baseline';
+                    pill.textContent = item.info.tag || 'element';
+                    return pill;
+                }}
+
+                function insertPillAtCursor(pill) {{
+                    input.focus();
+                    let sel = window.getSelection();
+                    let range = savedRange;
+                    if (!range || !input.contains(range.commonAncestorContainer)) {{
+                        range = document.createRange();
+                        range.selectNodeContents(input);
+                        range.collapse(false);
+                    }}
+
+                    range.deleteContents();
+
+                    let spaceAfter = document.createTextNode('\u00A0');
+
+                    range.insertNode(pill);
+                    range.setStartAfter(pill);
+                    range.collapse(true);
+
+                    range.insertNode(spaceAfter);
+                    range.setStartAfter(spaceAfter);
+                    range.collapse(true);
+
+                    if (sel) {{
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }}
+                    savedRange = range.cloneRange();
+                    updatePlaceholder();
+                    adjustInputHeight();
+                }}
+
+                function syncElementsFromPills() {{
+                    if (selectedElements.length <= 1) return;
+                    let remainingPills = Array.from(input.querySelectorAll('.__zeron_inline_pill__'));
+                    let newSelected = [selectedElements[0]];
+                    for (let i = 1; i < selectedElements.length; i++) {{
+                        let item = selectedElements[i];
+                        let foundIdx = remainingPills.findIndex(p => p.__item === item);
+                        if (foundIdx !== -1) {{
+                            newSelected.push(item);
+                            remainingPills.splice(foundIdx, 1);
+                        }} else {{
+                            if (item.overlayEl && item.overlayEl.parentNode) item.overlayEl.remove();
+                            if (item.badgeEl && item.badgeEl.parentNode) item.badgeEl.remove();
                         }}
                     }}
-                    if (pillsContainer) {{
-                        pillsContainer.innerHTML = '';
-                    }}
+                    selectedElements = newSelected;
                 }}
 
                 function removeElement(targetItem) {{
                     if (targetItem.overlayEl && targetItem.overlayEl.parentNode) targetItem.overlayEl.remove();
                     if (targetItem.badgeEl && targetItem.badgeEl.parentNode) targetItem.badgeEl.remove();
-                    if (targetItem.pillEl && targetItem.pillEl.parentNode) targetItem.pillEl.remove();
+                    if (targetItem.pillEl && targetItem.pillEl.parentNode && targetItem.pillEl !== firstPill) targetItem.pillEl.remove();
 
                     selectedElements = selectedElements.filter(it => it !== targetItem);
 
@@ -997,7 +1108,25 @@ impl NativePage {
                         return;
                     }}
 
-                    for (let i = 0; i < selectedElements.length; i++) {{
+                    let primary = selectedElements[0];
+                    let primaryCol = getColor(0);
+                    primary.overlayEl.style.border = '2px solid ' + primaryCol.border;
+                    primary.overlayEl.style.boxShadow = primaryCol.shadow;
+                    primary.badgeEl.style.background = primaryCol.bg;
+                    primary.badgeEl.style.color = primaryCol.text;
+                    primary.badgeEl.style.border = '1px solid ' + primaryCol.border;
+
+                    firstPill.textContent = primary.info.tag || 'element';
+                    firstPill.style.background = primaryCol.bg;
+                    firstPill.style.color = primaryCol.text;
+                    firstPill.style.border = '1px solid ' + primaryCol.border;
+                    firstPill.style.display = 'inline-flex';
+                    if (primary.pillEl && primary.pillEl.parentNode && primary.pillEl !== firstPill) {{
+                        primary.pillEl.remove();
+                    }}
+                    primary.pillEl = firstPill;
+
+                    for (let i = 1; i < selectedElements.length; i++) {{
                         let it = selectedElements[i];
                         let col = getColor(i);
                         it.overlayEl.style.border = '2px solid ' + col.border;
@@ -1005,18 +1134,15 @@ impl NativePage {
                         it.badgeEl.style.background = col.bg;
                         it.badgeEl.style.color = col.text;
                         it.badgeEl.style.border = '1px solid ' + col.border;
-                        it.pillEl.style.background = col.bg;
-                        it.pillEl.style.color = col.text;
-                        it.pillEl.style.border = '1px solid ' + col.border;
-                    }}
-                    if (hintEl) {{
-                        if (selectedElements.length > 1) {{
-                            hintEl.textContent = selectedElements.length + ' elements · Enter to submit';
-                        }} else {{
-                            hintEl.textContent = 'Enter to submit · Shift+Enter newline';
+                        if (it.pillEl) {{
+                            it.pillEl.style.background = col.bg;
+                            it.pillEl.style.color = col.text;
+                            it.pillEl.style.border = '1px solid ' + col.border;
                         }}
                     }}
-                    adjustTextareaHeight();
+
+                    updatePlaceholder();
+                    adjustInputHeight();
                     input.focus();
                 }}
 
@@ -1064,72 +1190,61 @@ impl NativePage {
 
                     let item = {{ el, rect, info, overlayEl, badgeEl, pillEl: null }};
 
-                    let pillEl = document.createElement('span');
-                    pillEl.className = '__zeron_tag_pill__';
-                    pillEl.style.display = 'inline-flex';
-                    pillEl.style.alignItems = 'center';
-                    pillEl.style.gap = '3px';
-                    pillEl.style.background = color.bg;
-                    pillEl.style.color = color.text;
-                    pillEl.style.border = '1px solid ' + color.border;
-                    pillEl.style.fontSize = '11px';
-                    pillEl.style.fontWeight = '500';
-                    pillEl.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-                    pillEl.style.padding = '2px 6px 2px 8px';
-                    pillEl.style.borderRadius = '9999px';
-                    pillEl.style.flexShrink = '0';
-
-                    let tagSpan = document.createElement('span');
-                    tagSpan.textContent = info.tag || 'element';
-                    pillEl.appendChild(tagSpan);
-
-                    let removeBtn = document.createElement('span');
-                    removeBtn.innerHTML = '×';
-                    removeBtn.style.fontSize = '13px';
-                    removeBtn.style.lineHeight = '1';
-                    removeBtn.style.cursor = 'pointer';
-                    removeBtn.style.opacity = '0.65';
-                    removeBtn.style.marginLeft = '2px';
-                    removeBtn.style.fontWeight = 'bold';
-                    removeBtn.title = 'Remove';
-                    removeBtn.addEventListener('mouseenter', () => removeBtn.style.opacity = '1.0');
-                    removeBtn.addEventListener('mouseleave', () => removeBtn.style.opacity = '0.65');
-                    removeBtn.addEventListener('click', (e) => {{
-                        e.stopPropagation();
-                        removeElement(item);
-                    }});
-                    pillEl.appendChild(removeBtn);
-
-                    pillsContainer.appendChild(pillEl);
-                    item.pillEl = pillEl;
+                    if (idx === 0) {{
+                        firstPill.textContent = info.tag || 'element';
+                        firstPill.style.background = color.bg;
+                        firstPill.style.color = color.text;
+                        firstPill.style.border = '1px solid ' + color.border;
+                        firstPill.style.display = 'inline-flex';
+                        item.pillEl = firstPill;
+                    }} else {{
+                        let inlinePill = createInlinePill(item, color);
+                        item.pillEl = inlinePill;
+                        insertPillAtCursor(inlinePill);
+                    }}
 
                     selectedElements.push(item);
 
                     overlay.style.display = 'none';
                     badge.style.display = 'none';
 
-                    if (hintEl) {{
-                        if (selectedElements.length > 1) {{
-                            hintEl.textContent = selectedElements.length + ' elements · Enter to submit';
-                        }} else {{
-                            hintEl.textContent = 'Enter to submit · Shift+Enter newline';
-                        }}
-                    }}
-
                     if (idx === 0) {{
-                        input.value = '';
-                        adjustTextareaHeight();
+                        input.innerHTML = '';
+                        updatePlaceholder();
+                        adjustInputHeight();
                         positionPopup(rect);
                         popup.style.display = 'flex';
                     }} else {{
-                        adjustTextareaHeight();
+                        adjustInputHeight();
                     }}
                     setTimeout(() => input.focus(), 20);
                 }}
 
+                function getPromptText() {{
+                    let result = '';
+                    function traverse(node) {{
+                        if (node.nodeType === Node.TEXT_NODE) {{
+                            result += node.textContent.replace(/\u00A0/g, ' ');
+                        }} else if (node.nodeType === Node.ELEMENT_NODE) {{
+                            if (node.classList && node.classList.contains('__zeron_inline_pill__')) {{
+                                let tag = node.dataset.tag || node.textContent;
+                                result += '[' + tag + ']';
+                            }} else if (node.tagName === 'BR') {{
+                                result += '\n';
+                            }} else {{
+                                for (let child of node.childNodes) {{
+                                    traverse(child);
+                                }}
+                            }}
+                        }}
+                    }}
+                    traverse(input);
+                    return result.trim();
+                }}
+
                 function doSubmit() {{
                     if (selectedElements.length === 0) return;
-                    let promptText = input.value.trim();
+                    let promptText = getPromptText();
                     let primary = selectedElements[0];
                     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                     let elementsList = selectedElements.map(s => {{
@@ -1179,7 +1294,10 @@ impl NativePage {
                     e.stopPropagation();
                     if (e.key === 'Enter') {{
                         if (e.shiftKey) {{
-                            setTimeout(adjustTextareaHeight, 0);
+                            setTimeout(() => {{
+                                adjustInputHeight();
+                                saveSelection();
+                            }}, 0);
                             return;
                         }}
                         e.preventDefault();
@@ -1187,19 +1305,40 @@ impl NativePage {
                     }} else if (e.key === 'Escape') {{
                         e.preventDefault();
                         clearSelection();
-                    }} else if (e.key === 'Backspace' && input.value === '' && selectedElements.length > 1) {{
-                        e.preventDefault();
-                        removeElement(selectedElements[selectedElements.length - 1]);
+                    }} else if (e.key === 'Backspace') {{
+                        let hasPills = input.querySelector('.__zeron_inline_pill__') !== null;
+                        let text = input.innerText.replace(/[\r\n\t\s\u00A0]/g, '');
+                        if (!hasPills && text.length === 0) {{
+                            e.preventDefault();
+                            clearSelection();
+                        }} else {{
+                            setTimeout(() => {{
+                                syncElementsFromPills();
+                                updatePlaceholder();
+                                adjustInputHeight();
+                                saveSelection();
+                            }}, 0);
+                        }}
                     }}
                 }});
                 input.addEventListener('keyup', (e) => {{
                     e.stopPropagation();
-                    adjustTextareaHeight();
+                    saveSelection();
+                    syncElementsFromPills();
+                    updatePlaceholder();
+                    adjustInputHeight();
+                }});
+                input.addEventListener('mouseup', (e) => {{
+                    e.stopPropagation();
+                    saveSelection();
                 }});
                 input.addEventListener('keypress', (e) => e.stopPropagation());
                 input.addEventListener('input', (e) => {{
                     e.stopPropagation();
-                    adjustTextareaHeight();
+                    saveSelection();
+                    syncElementsFromPills();
+                    updatePlaceholder();
+                    adjustInputHeight();
                 }});
 
                 submitBtn.addEventListener('click', (e) => {{
@@ -1360,14 +1499,12 @@ impl NativePage {
 
                 function onWheel(e) {{
                     if (!active) return;
-                    if (pillsContainer && pillsContainer.contains(e.target)) return;
                     if (input && input.contains(e.target)) return;
                     e.preventDefault();
                 }}
 
                 function onTouchMove(e) {{
                     if (!active) return;
-                    if (pillsContainer && pillsContainer.contains(e.target)) return;
                     if (input && input.contains(e.target)) return;
                     e.preventDefault();
                 }}
@@ -1412,7 +1549,7 @@ impl NativePage {
                         styleTag.id = '__zeron_design_theme_styles__';
                         document.head.appendChild(styleTag);
                     }}
-                    styleTag.textContent = '#__zeron_design_popup__ textarea::placeholder {{ color: ' + t.text_muted + ' !important; opacity: 1 !important; }} #__zeron_design_popup__ textarea::-webkit-scrollbar {{ width: 4px; }} #__zeron_design_popup__ textarea::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 2px; }}';
+                    styleTag.textContent = '#__zeron_design_input__:empty::before, #__zeron_design_input__[data-empty="true"]::before {{ content: attr(placeholder); color: ' + t.text_muted + ' !important; pointer-events: none; display: inline-block; opacity: 1 !important; }} #__zeron_design_input__::-webkit-scrollbar {{ width: 4px; }} #__zeron_design_input__::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 2px; }}';
                     let pop = document.getElementById('__zeron_design_popup__');
                     if (pop) {{
                         pop.style.background = t.bg;
@@ -1421,12 +1558,9 @@ impl NativePage {
                         pop.style.border = '1px solid ' + t.border;
                         pop.style.boxShadow = t.box_shadow;
 
-                        let inp = pop.querySelector('textarea');
+                        let inp = document.getElementById('__zeron_design_input__');
                         if (inp) {{
                             inp.style.color = t.text;
-                        }}
-                        if (hintEl) {{
-                            hintEl.style.color = t.text_muted;
                         }}
                         let btn = pop.querySelector('.__zeron_submit_btn__');
                         if (btn) {{
