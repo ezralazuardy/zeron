@@ -178,6 +178,7 @@ mod tests {
             classes: "btn btn-primary".into(),
             selector: "form > button#submit".into(),
             text: "Submit Form".into(),
+            screenshot: None,
         };
         assert_eq!(
             el.to_prompt_context(),
@@ -191,6 +192,7 @@ mod tests {
             classes: "".into(),
             selector: "main > section:nth-of-type(2)".into(),
             text: "Hero Content".into(),
+            screenshot: None,
         };
         assert_eq!(
             el_selector.to_prompt_context(),
@@ -204,6 +206,7 @@ mod tests {
             classes: "".into(),
             selector: "input#search".into(),
             text: "".into(),
+            screenshot: None,
         };
         assert_eq!(el_no_text.to_prompt_context(), "[Element: input#search] ");
 
@@ -268,15 +271,13 @@ mod tests {
     fn console_log_entry_serde_and_formatting() {
         let entry = ConsoleLogEntry {
             level: "error".into(),
-            message: "Uncaught TypeError: Cannot read property of undefined".into(),
-            source: Some("app.js:42".into()),
+            text: "Uncaught TypeError: Cannot read property of undefined".into(),
             timestamp: 123456789,
         };
         let serialized = serde_json::to_string(&entry).unwrap();
         let deserialized: ConsoleLogEntry = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.level, "error");
-        assert_eq!(deserialized.message, "Uncaught TypeError: Cannot read property of undefined");
-        assert_eq!(deserialized.source.as_deref(), Some("app.js:42"));
+        assert_eq!(deserialized.text, "Uncaught TypeError: Cannot read property of undefined");
         assert_eq!(deserialized.timestamp, 123456789);
     }
 }
