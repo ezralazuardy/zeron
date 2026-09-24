@@ -48,9 +48,28 @@ fn design_mode_button(
         .text_color(theme.accent)
         .child("Design");
 
-    let button = crate::files::toolbar_button("browser-design-mode", label)
+    let hover_bg = if active {
+        theme.accent.opacity(0.26)
+    } else {
+        crate::theme::wash(0.14)
+    };
+
+    let button = div()
+        .id("browser-design-mode")
         .w_full()
         .h_full()
+        .flex_none()
+        .rounded(px(surface_chrome::CONTROL_RADIUS))
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .role(gpui::Role::Button)
+        .aria_label(label)
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+            window.prevent_default()
+        })
+        .hover(move |style| style.bg(hover_bg))
         .overflow_hidden()
         .when(active || animating, |el| {
             el.justify_start()
@@ -58,11 +77,11 @@ fn design_mode_button(
                 .pr(px(8.0))
                 .gap(px(4.0))
         })
+        .when(!active && !animating, |el| el.justify_center())
         .when(active, |el| {
             el.bg(theme.accent.opacity(0.18))
                 .border_1()
                 .border_color(theme.accent)
-                .hover(|style| style.bg(theme.accent.opacity(0.26)))
         })
         .when(!enabled, |el| el.cursor_default().opacity(0.35))
         .when(enabled, |el| {
