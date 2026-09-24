@@ -7639,7 +7639,7 @@ impl Composer {
         cx.notify();
     }
 
-    fn on_submit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn on_submit(&mut self, cx: &mut Context<Self>) {
         if self.commit_queue_edit(cx) {
             return;
         }

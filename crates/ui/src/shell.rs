@@ -2971,17 +2971,21 @@ impl Shell {
                     let screenshot = element.screenshot.clone();
                     let tag = if element.tag.is_empty() { "element" } else { &element.tag };
                     let filename = format!("{tag}-inspection.png");
+                    let user_prompt = element.user_prompt.clone().unwrap_or_default();
                     this.composer.update(cx, |composer, cx| {
                         let cur_text = composer.input.read(cx).text().to_string();
-                        if cur_text.contains(prompt.trim()) {
-                            return;
-                        }
-                        let new_text = if cur_text.is_empty() {
-                            prompt
-                        } else if cur_text.ends_with(' ') {
-                            format!("{}{}", cur_text, prompt)
+                        let element_prompt = prompt.trim();
+                        let combined = if user_prompt.trim().is_empty() {
+                            format!("{element_prompt} ")
                         } else {
-                            format!("{} {}", cur_text, prompt)
+                            format!("{element_prompt} {}", user_prompt.trim())
+                        };
+                        let new_text = if cur_text.is_empty() {
+                            combined
+                        } else if cur_text.ends_with(' ') {
+                            format!("{}{}", cur_text, combined)
+                        } else {
+                            format!("{} {}", cur_text, combined)
                         };
                         composer.input.update(cx, |input, cx| {
                             input.set_text(new_text, cx);
@@ -2990,7 +2994,17 @@ impl Shell {
                             let staged = crate::attachments::stage_png_bytes(filename, bytes);
                             composer.add_staged_attachment(staged, cx);
                         }
+                        composer.on_submit(cx);
                     });
+                    if let Some(browser) = this.browsers.get(&id) {
+                        browser.update(cx, |b, cx| {
+                            if b.design_mode {
+                                b.toggle_design_mode_force(cx);
+                            } else {
+                                b.clear_selection();
+                            }
+                        });
+                    }
                     let focus = this.composer.focus_handle(cx);
                     window.focus(&focus, cx);
                 }

@@ -415,9 +415,12 @@ impl NativePage {
                                 let _ = console_tx.try_send(NativeEvent::ConsoleLog(entry));
                             }
                         }
-                    } else if action == Some("inspect") {
+                    } else if action == Some("inspect") || action == Some("inspect_submit") {
                         if let Some(elem_val) = value.get("element") {
                             if let Ok(mut elem) = serde_json::from_value::<super::model::InspectedElement>(elem_val.clone()) {
+                                if let Some(prompt) = value.get("user_prompt").and_then(|v| v.as_str()) {
+                                    elem.user_prompt = Some(prompt.to_string());
+                                }
                                 let x = elem_val.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let y = elem_val.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let w = elem_val.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -680,12 +683,13 @@ impl NativePage {
                 let active = true;
 
                 let overlay = document.createElement('div');
-                overlay.id = '__zeron_design_overlay__';
+                overlay.id = '__zeron_design_hover__';
                 overlay.style.position = 'fixed';
                 overlay.style.pointerEvents = 'none';
-                overlay.style.zIndex = '2147483647';
+                overlay.style.zIndex = '2147483645';
                 overlay.style.border = '2px solid #3b82f6';
                 overlay.style.backgroundColor = 'rgba(59, 130, 246, 0.12)';
+                overlay.style.borderRadius = '2px';
                 overlay.style.display = 'none';
                 overlay.style.transition = 'all 0.05s ease';
 
@@ -694,16 +698,17 @@ impl NativePage {
                 badge.style.position = 'fixed';
                 badge.style.pointerEvents = 'none';
                 badge.style.zIndex = '2147483647';
-                badge.style.padding = '2px 6px';
-                badge.style.borderRadius = '4px';
+                badge.style.padding = '3px 8px';
+                badge.style.borderRadius = '6px';
                 badge.style.fontSize = '11px';
-                badge.style.fontFamily = 'monospace';
-                badge.style.color = '#ffffff';
-                badge.style.backgroundColor = '#1d4ed8';
-                badge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                badge.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                badge.style.color = '#f4f4f5';
+                badge.style.backgroundColor = 'rgba(24, 24, 27, 0.95)';
+                badge.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+                badge.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
                 badge.style.display = 'none';
                 badge.style.whiteSpace = 'nowrap';
-                badge.style.maxWidth = '320px';
+                badge.style.maxWidth = '360px';
                 badge.style.overflow = 'hidden';
                 badge.style.textOverflow = 'ellipsis';
 
@@ -716,28 +721,101 @@ impl NativePage {
                 selectedOverlay.style.boxShadow = '0 0 0 1px rgba(59, 130, 246, 0.4)';
                 selectedOverlay.style.borderRadius = '2px';
                 selectedOverlay.style.display = 'none';
-                selectedOverlay.style.transition = 'all 0.05s ease';
+
+                let dragOverlay = document.createElement('div');
+                dragOverlay.id = '__zeron_design_drag__';
+                dragOverlay.style.position = 'fixed';
+                dragOverlay.style.pointerEvents = 'none';
+                dragOverlay.style.zIndex = '2147483646';
+                dragOverlay.style.border = '2px dashed #3b82f6';
+                dragOverlay.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+                dragOverlay.style.borderRadius = '2px';
+                dragOverlay.style.display = 'none';
+
+                let popup = document.createElement('div');
+                popup.id = '__zeron_design_popup__';
+                popup.style.position = 'fixed';
+                popup.style.zIndex = '2147483647';
+                popup.style.display = 'none';
+                popup.style.alignItems = 'center';
+                popup.style.gap = '8px';
+                popup.style.background = '#18181b';
+                popup.style.border = '1px solid rgba(255, 255, 255, 0.16)';
+                popup.style.borderRadius = '9999px';
+                popup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3)';
+                popup.style.padding = '4px 6px 4px 10px';
+                popup.style.boxSizing = 'border-box';
+                popup.style.userSelect = 'none';
+                popup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+                popup.addEventListener('pointerdown', (e) => e.stopPropagation());
+                popup.addEventListener('mousedown', (e) => e.stopPropagation());
+                popup.addEventListener('mouseup', (e) => e.stopPropagation());
+                popup.addEventListener('click', (e) => e.stopPropagation());
+
+                let tagPill = document.createElement('span');
+                tagPill.style.display = 'inline-flex';
+                tagPill.style.alignItems = 'center';
+                tagPill.style.gap = '4px';
+                tagPill.style.background = 'rgba(255, 255, 255, 0.08)';
+                tagPill.style.color = '#d4d4d8';
+                tagPill.style.fontSize = '11px';
+                tagPill.style.fontWeight = '500';
+                tagPill.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+                tagPill.style.padding = '2px 8px';
+                tagPill.style.borderRadius = '9999px';
+                tagPill.style.flexShrink = '0';
+                tagPill.textContent = 'element';
+
+                let input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = 'Describe the change';
+                input.style.background = 'transparent';
+                input.style.border = 'none';
+                input.style.outline = 'none';
+                input.style.color = '#ffffff';
+                input.style.fontSize = '13px';
+                input.style.width = '200px';
+                input.style.fontFamily = 'inherit';
+                input.style.lineHeight = '20px';
+                input.style.padding = '0';
+                input.style.margin = '0';
+
+                let submitBtn = document.createElement('button');
+                submitBtn.style.width = '24px';
+                submitBtn.style.height = '24px';
+                submitBtn.style.borderRadius = '50%';
+                submitBtn.style.background = '#ffffff';
+                submitBtn.style.color = '#18181b';
+                submitBtn.style.border = 'none';
+                submitBtn.style.outline = 'none';
+                submitBtn.style.cursor = 'pointer';
+                submitBtn.style.display = 'inline-flex';
+                submitBtn.style.alignItems = 'center';
+                submitBtn.style.justifyContent = 'center';
+                submitBtn.style.padding = '0';
+                submitBtn.style.flexShrink = '0';
+                submitBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+
+                popup.appendChild(tagPill);
+                popup.appendChild(input);
+                popup.appendChild(submitBtn);
 
                 document.documentElement.appendChild(overlay);
                 document.documentElement.appendChild(badge);
                 document.documentElement.appendChild(selectedOverlay);
+                document.documentElement.appendChild(dragOverlay);
+                document.documentElement.appendChild(popup);
 
                 let hoveredEl = null;
                 let selectedEl = null;
+                let selectedRect = null;
+                let selectedInfo = null;
                 let rafId = null;
 
-                function updateSelected() {{
-                    if (!selectedEl) {{
-                        if (selectedOverlay) selectedOverlay.style.display = 'none';
-                        return;
-                    }}
-                    let rect = selectedEl.getBoundingClientRect();
-                    selectedOverlay.style.left = rect.left + 'px';
-                    selectedOverlay.style.top = rect.top + 'px';
-                    selectedOverlay.style.width = rect.width + 'px';
-                    selectedOverlay.style.height = rect.height + 'px';
-                    selectedOverlay.style.display = 'block';
-                }}
+                let isMouseDown = false;
+                let startX = 0, startY = 0;
+                let isDragging = false;
 
                 function getSelector(el) {{
                     if (!(el instanceof Element)) return '';
@@ -761,12 +839,123 @@ impl NativePage {
                     return path.join(' > ');
                 }}
 
+                function clearSelection() {{
+                    selectedEl = null;
+                    selectedRect = null;
+                    selectedInfo = null;
+                    if (selectedOverlay) selectedOverlay.style.display = 'none';
+                    if (popup) {{
+                        popup.style.display = 'none';
+                        if (input) input.value = '';
+                    }}
+                }}
+
+                function positionPopup(rect) {{
+                    let top = rect.bottom + 8;
+                    if (top + 46 > window.innerHeight) {{
+                        top = Math.max(8, rect.top - 46);
+                    }}
+                    let left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 320));
+                    popup.style.top = top + 'px';
+                    popup.style.left = left + 'px';
+                }}
+
+                function showSelection(rect, el, info) {{
+                    selectedEl = el;
+                    selectedRect = rect;
+                    selectedInfo = info;
+
+                    selectedOverlay.style.left = rect.left + 'px';
+                    selectedOverlay.style.top = rect.top + 'px';
+                    selectedOverlay.style.width = rect.width + 'px';
+                    selectedOverlay.style.height = rect.height + 'px';
+                    selectedOverlay.style.display = 'block';
+
+                    overlay.style.display = 'none';
+                    badge.style.display = 'none';
+
+                    tagPill.textContent = info.tag || 'element';
+                    input.value = '';
+                    positionPopup(rect);
+                    popup.style.display = 'flex';
+                    setTimeout(() => input.focus(), 20);
+                }}
+
+                function doSubmit() {{
+                    if (!selectedRect || !selectedInfo) return;
+                    let promptText = input.value.trim();
+                    let rect = selectedRect;
+                    let info = selectedInfo;
+                    let payload = {{
+                        action: 'inspect_submit',
+                        user_prompt: promptText,
+                        element: {{
+                            tag: info.tag,
+                            id: info.id || '',
+                            classes: info.classes || '',
+                            selector: info.selector || '',
+                            text: info.text || '',
+                            x: Math.max(0, rect.left),
+                            y: Math.max(0, rect.top),
+                            w: Math.max(0, rect.width),
+                            h: Math.max(0, rect.height),
+                            user_prompt: promptText
+                        }}
+                    }};
+                    clearSelection();
+                    if (window.ipc && window.ipc.postMessage) {{
+                        window.ipc.postMessage(JSON.stringify(payload));
+                    }}
+                }}
+
+                input.addEventListener('keydown', (e) => {{
+                    e.stopPropagation();
+                    if (e.key === 'Enter') {{
+                        e.preventDefault();
+                        doSubmit();
+                    }} else if (e.key === 'Escape') {{
+                        e.preventDefault();
+                        clearSelection();
+                    }}
+                }});
+                input.addEventListener('keyup', (e) => e.stopPropagation());
+                input.addEventListener('keypress', (e) => e.stopPropagation());
+                input.addEventListener('input', (e) => e.stopPropagation());
+
+                submitBtn.addEventListener('click', (e) => {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    doSubmit();
+                }});
+
                 function onPointerMove(e) {{
                     if (!active) return;
+                    if (isMouseDown) {{
+                        let dx = e.clientX - startX;
+                        let dy = e.clientY - startY;
+                        if (!isDragging && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {{
+                            isDragging = true;
+                            overlay.style.display = 'none';
+                            badge.style.display = 'none';
+                        }}
+                        if (isDragging) {{
+                            let l = Math.min(startX, e.clientX);
+                            let t = Math.min(startY, e.clientY);
+                            let w = Math.abs(e.clientX - startX);
+                            let h = Math.abs(e.clientY - startY);
+                            dragOverlay.style.left = l + 'px';
+                            dragOverlay.style.top = t + 'px';
+                            dragOverlay.style.width = w + 'px';
+                            dragOverlay.style.height = h + 'px';
+                            dragOverlay.style.display = 'block';
+                            return;
+                        }}
+                    }}
+                    if (isDragging) return;
                     if (rafId) cancelAnimationFrame(rafId);
                     rafId = requestAnimationFrame(() => {{
                         let target = document.elementFromPoint(e.clientX, e.clientY);
-                        if (!target || target === overlay || target === badge || target === selectedOverlay || target === document.documentElement || target === document.body) {{
+                        if (!target || target === overlay || target === badge || target === selectedOverlay || target === dragOverlay || popup.contains(target) || target === document.documentElement || target === document.body) {{
                             overlay.style.display = 'none';
                             badge.style.display = 'none';
                             hoveredEl = null;
@@ -781,78 +970,102 @@ impl NativePage {
                         overlay.style.display = 'block';
 
                         let tag = target.tagName.toLowerCase();
-                        let rawCls = typeof target.className === 'string' ? target.className : (target.className && target.className.baseVal) || '';
-                        let cls = rawCls.trim()
-                            ? '.' + rawCls.trim().split(/\\s+/).filter(Boolean).slice(0, 2).join('.')
-                            : '';
-                        let textDim = Math.round(rect.width) + ' \\u00d7 ' + Math.round(rect.height);
-                        badge.textContent = tag + cls + ' (' + textDim + ')';
-                        let badgeTop = rect.top - 22;
-                        if (badgeTop < 2) badgeTop = rect.bottom + 4;
-                        let maxLeft = Math.max(2, window.innerWidth - 330);
-                        badge.style.left = Math.min(Math.max(2, rect.left), maxLeft) + 'px';
+                        badge.innerHTML = (tag ? '<span style="font-weight:600;font-family:monospace;color:#60a5fa;margin-right:6px;">' + tag + '</span>' : '') + 'Click to select, drag to draw';
+                        let badgeTop = rect.bottom + 6;
+                        if (badgeTop + 30 > window.innerHeight) badgeTop = Math.max(4, rect.top - 28);
+                        let maxLeft = Math.max(4, window.innerWidth - 300);
+                        badge.style.left = Math.min(Math.max(4, rect.left), maxLeft) + 'px';
                         badge.style.top = badgeTop + 'px';
                         badge.style.display = 'block';
                     }});
                 }}
 
+                function onPointerDown(e) {{
+                    if (!active || e.button !== 0) return;
+                    if (popup && popup.contains(e.target)) return;
+                    isMouseDown = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    isDragging = false;
+                }}
+
+                function onPointerUp(e) {{
+                    if (!active) return;
+                    if (popup && popup.contains(e.target)) return;
+                    if (isDragging) {{
+                        isDragging = false;
+                        isMouseDown = false;
+                        dragOverlay.style.display = 'none';
+                        let l = Math.min(startX, e.clientX);
+                        let t = Math.min(startY, e.clientY);
+                        let w = Math.abs(e.clientX - startX);
+                        let h = Math.abs(e.clientY - startY);
+                        if (w >= 10 && h >= 10) {{
+                            showSelection(
+                                {{ left: l, top: t, width: w, height: h, bottom: t + h, right: l + w }},
+                                null,
+                                {{ tag: 'area', id: '', classes: '', selector: 'area', text: '' }}
+                            );
+                        }}
+                        return;
+                    }}
+                    isMouseDown = false;
+                }}
+
+                function onClick(e) {{
+                    if (!active) return;
+                    if (popup && popup.contains(e.target)) return;
+                    if (isDragging) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (hoveredEl) {{
+                        let el = hoveredEl;
+                        let rect = el.getBoundingClientRect();
+                        let tag = el.tagName.toLowerCase();
+                        let id = el.id || '';
+                        let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
+                        let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                        let selector = getSelector(el);
+                        showSelection(
+                            {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }},
+                            el,
+                            {{ tag, id, classes, selector, text }}
+                        );
+                    }} else if (!selectedEl) {{
+                        clearSelection();
+                    }}
+                }}
+
                 function onScroll() {{
-                    if (active && hoveredEl) {{
+                    if (active && hoveredEl && !selectedEl) {{
                         let rect = hoveredEl.getBoundingClientRect();
                         overlay.style.left = rect.left + 'px';
                         overlay.style.top = rect.top + 'px';
                         overlay.style.width = rect.width + 'px';
                         overlay.style.height = rect.height + 'px';
-                        let badgeTop = rect.top - 22;
-                        if (badgeTop < 2) badgeTop = rect.bottom + 4;
-                        let maxLeft = Math.max(2, window.innerWidth - 330);
-                        badge.style.left = Math.min(Math.max(2, rect.left), maxLeft) + 'px';
+                        let badgeTop = rect.bottom + 6;
+                        if (badgeTop + 30 > window.innerHeight) badgeTop = Math.max(4, rect.top - 28);
+                        let maxLeft = Math.max(4, window.innerWidth - 300);
+                        badge.style.left = Math.min(Math.max(4, rect.left), maxLeft) + 'px';
                         badge.style.top = badgeTop + 'px';
                     }}
                     if (selectedEl) {{
-                        updateSelected();
+                        let rect = selectedEl.getBoundingClientRect();
+                        selectedRect = {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }};
+                        selectedOverlay.style.left = rect.left + 'px';
+                        selectedOverlay.style.top = rect.top + 'px';
+                        selectedOverlay.style.width = rect.width + 'px';
+                        selectedOverlay.style.height = rect.height + 'px';
+                        positionPopup(selectedRect);
                     }}
                 }}
 
-                function onClick(e) {{
-                    if (!active || !hoveredEl) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    let el = hoveredEl;
-                    if (selectedEl === el) return;
-                    selectedEl = el;
-                    updateSelected();
-
-                    let rect = el.getBoundingClientRect();
-                    let tag = el.tagName.toLowerCase();
-                    let id = el.id || '';
-                    let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
-                    let text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 100);
-                    let selector = getSelector(el);
-
-                    let payload = {{
-                        action: 'inspect',
-                        element: {{
-                            tag, id, classes, selector, text,
-                            x: Math.max(0, rect.left),
-                            y: Math.max(0, rect.top),
-                            w: Math.max(0, rect.width),
-                            h: Math.max(0, rect.height)
-                        }}
-                    }};
-
-                    if (window.ipc && window.ipc.postMessage) {{
-                        window.ipc.postMessage(JSON.stringify(payload));
+                window.addEventListener('keydown', (e) => {{
+                    if (active && e.key === 'Escape') {{
+                        clearSelection();
                     }}
-
-                    overlay.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
-                    overlay.style.borderColor = '#22c55e';
-                    setTimeout(() => {{
-                        overlay.style.backgroundColor = 'rgba(59, 130, 246, 0.12)';
-                        overlay.style.borderColor = '#3b82f6';
-                    }}, 250);
-                }}
+                }});
 
                 window.__zeron_toggle_design_mode = function(enable) {{
                     active = enable;
@@ -860,25 +1073,22 @@ impl NativePage {
                         if (rafId) cancelAnimationFrame(rafId);
                         overlay.style.display = 'none';
                         badge.style.display = 'none';
+                        if (dragOverlay) dragOverlay.style.display = 'none';
                         hoveredEl = null;
-                        selectedEl = null;
-                        let sel = document.getElementById('__zeron_design_selected__');
-                        if (sel) sel.style.display = 'none';
+                        isMouseDown = false;
+                        isDragging = false;
+                        clearSelection();
                     }}
                 }};
 
-                window.__zeron_clear_design_selection = function() {{
-                    selectedEl = null;
-                    let sel = document.getElementById('__zeron_design_selected__');
-                    if (sel) sel.style.display = 'none';
-                }};
+                window.__zeron_clear_design_selection = clearSelection;
 
-                window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: true }});
-                window.addEventListener('scroll', onScroll, {{ capture: true, passive: true }});
-                window.addEventListener('resize', () => {{
-                    if (selectedEl) updateSelected();
-                }}, {{ capture: true, passive: true }});
+                window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: false }});
+                window.addEventListener('pointerdown', onPointerDown, {{ capture: true, passive: false }});
+                window.addEventListener('pointerup', onPointerUp, {{ capture: true, passive: false }});
                 window.addEventListener('click', onClick, {{ capture: true }});
+                window.addEventListener('scroll', onScroll, {{ capture: true, passive: true }});
+                window.addEventListener('resize', onScroll, {{ capture: true, passive: true }});
             }})();"#
         );
         let completion = block2::RcBlock::new(|_: *mut AnyObject, _: *mut NSError| {});

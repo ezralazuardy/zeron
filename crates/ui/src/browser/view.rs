@@ -446,7 +446,7 @@ impl Render for BrowserSurface {
             } else {
                 "Design Mode (Cmd+Shift+D)"
             },
-            icons::MAGIC_STICK_3,
+            icons::PEN,
             has_page,
             &theme,
             cx,

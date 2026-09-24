@@ -34,6 +34,8 @@ pub struct InspectedElement {
     pub text: String,
     #[serde(default)]
     pub screenshot: Option<Vec<u8>>,
+    #[serde(default)]
+    pub user_prompt: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -179,6 +181,7 @@ mod tests {
             selector: "form > button#submit".into(),
             text: "Submit Form".into(),
             screenshot: None,
+            user_prompt: None,
         };
         assert_eq!(
             el.to_prompt_context(),
@@ -193,6 +196,7 @@ mod tests {
             selector: "main > section:nth-of-type(2)".into(),
             text: "Hero Content".into(),
             screenshot: None,
+            user_prompt: None,
         };
         assert_eq!(
             el_selector.to_prompt_context(),
@@ -207,15 +211,17 @@ mod tests {
             selector: "input#search".into(),
             text: "".into(),
             screenshot: None,
+            user_prompt: None,
         };
         assert_eq!(el_no_text.to_prompt_context(), "[Element: input#search] ");
 
         // Serde roundtrip for IPC payload compatibility
-        let json = r#"{"tag":"span","id":"badge","classes":"pill active","selector":"span#badge","text":"5"}"#;
+        let json = r#"{"tag":"span","id":"badge","classes":"pill active","selector":"span#badge","text":"5","user_prompt":"change color"}"#;
         let parsed: InspectedElement = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.tag, "span");
         assert_eq!(parsed.id, "badge");
         assert_eq!(parsed.text, "5");
+        assert_eq!(parsed.user_prompt.as_deref(), Some("change color"));
     }
     #[test]
     fn normalizes_web_addresses_and_loopback_ports() {
