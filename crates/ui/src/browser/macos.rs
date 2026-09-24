@@ -1029,20 +1029,22 @@ impl NativePage {
                     pill.contentEditable = 'false';
                     pill.dataset.tag = item.info.tag || 'element';
                     pill.__item = item;
-                    pill.style.display = 'inline-flex';
-                    pill.style.alignItems = 'center';
+                    pill.style.display = 'inline-block';
                     pill.style.background = color.bg;
                     pill.style.color = color.text;
                     pill.style.border = '1px solid ' + color.border;
                     pill.style.borderRadius = '4px';
-                    pill.style.padding = '1px 5px';
+                    pill.style.padding = '0 5px';
                     pill.style.margin = '0 2px';
                     pill.style.fontSize = '11px';
                     pill.style.fontWeight = '600';
                     pill.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-                    pill.style.lineHeight = '14px';
+                    pill.style.lineHeight = '16px';
                     pill.style.userSelect = 'none';
+                    pill.style.webkitUserSelect = 'none';
                     pill.style.verticalAlign = 'baseline';
+                    pill.style.whiteSpace = 'nowrap';
+                    pill.style.cursor = 'default';
                     pill.textContent = item.info.tag || 'element';
                     return pill;
                 }}
@@ -1059,7 +1061,7 @@ impl NativePage {
 
                     range.deleteContents();
 
-                    let spaceAfter = document.createTextNode('\u00A0');
+                    let spaceAfter = document.createTextNode(' ');
 
                     range.insertNode(pill);
                     range.setStartAfter(pill);
@@ -1239,7 +1241,20 @@ impl NativePage {
                         }}
                     }}
                     traverse(input);
-                    return result.trim();
+                    return result.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '').trim();
+                }}
+
+                function sanitizeInputText() {{
+                    let walker = document.createTreeWalker(input, NodeFilter.SHOW_TEXT, null, false);
+                    let node;
+                    let modified = false;
+                    while ((node = walker.nextNode())) {{
+                        if (/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(node.textContent)) {{
+                            node.textContent = node.textContent.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '');
+                            modified = true;
+                        }}
+                    }}
+                    return modified;
                 }}
 
                 function doSubmit() {{
@@ -1305,6 +1320,69 @@ impl NativePage {
                     }} else if (e.key === 'Escape') {{
                         e.preventDefault();
                         clearSelection();
+                    }} else if (e.key === 'ArrowLeft') {{
+                        let sel = window.getSelection();
+                        if (sel && sel.isCollapsed && sel.rangeCount > 0) {{
+                            let node = sel.anchorNode;
+                            let offset = sel.anchorOffset;
+                            let pillBefore = null;
+                            if (node === input) {{
+                                if (offset > 0 && node.childNodes[offset - 1] && node.childNodes[offset - 1].classList && node.childNodes[offset - 1].classList.contains('__zeron_inline_pill__')) {{
+                                    pillBefore = node.childNodes[offset - 1];
+                                }}
+                            }} else if (node.nodeType === Node.TEXT_NODE && offset === 0) {{
+                                let prev = node.previousSibling;
+                                if (prev && prev.classList && prev.classList.contains('__zeron_inline_pill__')) {{
+                                    pillBefore = prev;
+                                }}
+                            }}
+                            if (pillBefore) {{
+                                e.preventDefault();
+                                let newRange = document.createRange();
+                                if (pillBefore.previousSibling && pillBefore.previousSibling.nodeType === Node.TEXT_NODE) {{
+                                    let txt = pillBefore.previousSibling;
+                                    newRange.setStart(txt, txt.textContent.length);
+                                }} else {{
+                                    newRange.setStartBefore(pillBefore);
+                                }}
+                                newRange.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(newRange);
+                                saveSelection();
+                                return;
+                            }}
+                        }}
+                    }} else if (e.key === 'ArrowRight') {{
+                        let sel = window.getSelection();
+                        if (sel && sel.isCollapsed && sel.rangeCount > 0) {{
+                            let node = sel.anchorNode;
+                            let offset = sel.anchorOffset;
+                            let pillAfter = null;
+                            if (node === input) {{
+                                if (offset < node.childNodes.length && node.childNodes[offset] && node.childNodes[offset].classList && node.childNodes[offset].classList.contains('__zeron_inline_pill__')) {{
+                                    pillAfter = node.childNodes[offset];
+                                }}
+                            }} else if (node.nodeType === Node.TEXT_NODE && offset === node.textContent.length) {{
+                                let next = node.nextSibling;
+                                if (next && next.classList && next.classList.contains('__zeron_inline_pill__')) {{
+                                    pillAfter = next;
+                                }}
+                            }}
+                            if (pillAfter) {{
+                                e.preventDefault();
+                                let newRange = document.createRange();
+                                if (pillAfter.nextSibling && pillAfter.nextSibling.nodeType === Node.TEXT_NODE) {{
+                                    newRange.setStart(pillAfter.nextSibling, 0);
+                                }} else {{
+                                    newRange.setStartAfter(pillAfter);
+                                }}
+                                newRange.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(newRange);
+                                saveSelection();
+                                return;
+                            }}
+                        }}
                     }} else if (e.key === 'Backspace') {{
                         let hasPills = input.querySelector('.__zeron_inline_pill__') !== null;
                         let text = input.innerText.replace(/[\r\n\t\s\u00A0]/g, '');
@@ -1321,6 +1399,25 @@ impl NativePage {
                         }}
                     }}
                 }});
+                input.addEventListener('beforeinput', (e) => {{
+                    e.stopPropagation();
+                    if (e.data && /[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(e.data)) {{
+                        e.preventDefault();
+                        return;
+                    }}
+                    let sel = window.getSelection();
+                    if (sel && sel.anchorNode) {{
+                        let target = sel.anchorNode;
+                        if (target.nodeType === Node.ELEMENT_NODE && target.closest('.__zeron_inline_pill__')) {{
+                            e.preventDefault();
+                            return;
+                        }}
+                        if (target.parentElement && target.parentElement.closest('.__zeron_inline_pill__')) {{
+                            e.preventDefault();
+                            return;
+                        }}
+                    }}
+                }});
                 input.addEventListener('keyup', (e) => {{
                     e.stopPropagation();
                     saveSelection();
@@ -1330,11 +1427,28 @@ impl NativePage {
                 }});
                 input.addEventListener('mouseup', (e) => {{
                     e.stopPropagation();
+                    let sel = window.getSelection();
+                    if (sel && sel.anchorNode) {{
+                        let pill = null;
+                        if (sel.anchorNode.nodeType === Node.ELEMENT_NODE) {{
+                            pill = sel.anchorNode.closest('.__zeron_inline_pill__');
+                        }} else if (sel.anchorNode.parentElement) {{
+                            pill = sel.anchorNode.parentElement.closest('.__zeron_inline_pill__');
+                        }}
+                        if (pill) {{
+                            let newRange = document.createRange();
+                            newRange.setStartAfter(pill);
+                            newRange.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(newRange);
+                        }}
+                    }}
                     saveSelection();
                 }});
                 input.addEventListener('keypress', (e) => e.stopPropagation());
                 input.addEventListener('input', (e) => {{
                     e.stopPropagation();
+                    sanitizeInputText();
                     saveSelection();
                     syncElementsFromPills();
                     updatePlaceholder();
