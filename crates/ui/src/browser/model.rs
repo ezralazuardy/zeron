@@ -168,6 +168,73 @@ pub fn presentation(active: bool, dragging: bool) -> Presentation {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DesignPopupTheme {
+    pub bg: String,
+    pub backdrop_filter: String,
+    pub border: String,
+    pub text: String,
+    pub text_muted: String,
+    pub tag_bg: String,
+    pub tag_text: String,
+    pub submit_bg: String,
+    pub submit_color: String,
+    pub box_shadow: String,
+}
+
+pub fn hsla_to_css(color: gpui::Hsla) -> String {
+    let [r, g, b] = crate::theme::hsl_to_rgb(color.h, color.s, color.l);
+    format!(
+        "rgba({}, {}, {}, {:.3})",
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+        color.a
+    )
+}
+
+impl DesignPopupTheme {
+    pub fn from_theme(theme: &crate::theme::Theme) -> Self {
+        let is_glass = theme.is_glass();
+        let bg = hsla_to_css(theme.glass());
+        let border = hsla_to_css(theme.border);
+        let text = hsla_to_css(theme.text);
+        let text_muted = hsla_to_css(theme.text_muted);
+        let tag_bg = if is_glass {
+            hsla_to_css(theme.wash(0.08))
+        } else {
+            hsla_to_css(theme.surface_raised)
+        };
+        let tag_text = hsla_to_css(theme.text_muted);
+        let submit_bg = hsla_to_css(theme.text);
+        let submit_color = hsla_to_css(theme.bg);
+        let (backdrop_filter, box_shadow) = if is_glass {
+            (
+                "blur(16px) saturate(180%)".to_string(),
+                "0 8px 32px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2)".to_string(),
+            )
+        } else {
+            (
+                "none".to_string(),
+                "0 8px 24px rgba(0, 0, 0, 0.4)".to_string(),
+            )
+        };
+
+        Self {
+            bg,
+            backdrop_filter,
+            border,
+            text,
+            text_muted,
+            tag_bg,
+            tag_text,
+            submit_bg,
+            submit_color,
+            box_shadow,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +352,18 @@ mod tests {
         assert_eq!(deserialized.level, "error");
         assert_eq!(deserialized.text, "Uncaught TypeError: Cannot read property of undefined");
         assert_eq!(deserialized.timestamp, 123456789);
+    }
+
+    #[test]
+    fn design_popup_theme_glass_and_opaque() {
+        let mut theme = crate::theme::Theme::dark();
+        theme.surface_treatment = zeron_theme::SurfaceTreatment::Frosted;
+        let frosted = DesignPopupTheme::from_theme(&theme);
+        assert!(frosted.backdrop_filter.contains("blur"));
+        assert!(frosted.bg.contains("rgba"));
+
+        theme.surface_treatment = zeron_theme::SurfaceTreatment::Opaque;
+        let opaque = DesignPopupTheme::from_theme(&theme);
+        assert_eq!(opaque.backdrop_filter, "none");
     }
 }

@@ -290,9 +290,10 @@ impl NativePage {
     pub fn command(&self, value: Value) {
         let _ = self.worker.send(self.id, value);
     }
-    pub fn set_design_mode(&self, enabled: bool) {
+    pub fn set_design_mode(&self, enabled: bool, _theme: &crate::theme::Theme) {
         self.command(json!({"cmd":"design-mode","enabled":enabled}));
     }
+    pub fn sync_design_mode_theme(&self, _theme: &crate::theme::Theme) {}
     pub fn is_focused(&self) -> bool {
         false
     }
@@ -383,7 +384,7 @@ impl super::BrowserSurface {
                     self.page = page;
                     cx.emit(super::BrowserEvent::Changed);
                     if self.design_mode && !self.page.loading {
-                        native.set_design_mode(true);
+                        native.set_design_mode(true, crate::theme::Theme::of(cx));
                     }
                 }
             }

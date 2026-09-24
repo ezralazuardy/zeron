@@ -670,10 +670,31 @@ impl NativePage {
             );
         }
     }
-    pub fn set_design_mode(&self, enabled: bool) {
+    pub fn sync_design_mode_theme(&self, theme: &crate::theme::Theme) {
         let host = self.0.borrow();
+        let css = super::model::DesignPopupTheme::from_theme(theme);
+        let theme_json = serde_json::to_string(&css).unwrap_or_default();
         let script = format!(
             r#"(() => {{
+                if (window.__zeron_apply_design_theme) {{
+                    window.__zeron_apply_design_theme({theme_json});
+                }}
+            }})()"#
+        );
+        let ns_script = NSString::from_str(&script);
+        unsafe {
+            host.view.evaluateJavaScript_completionHandler(&ns_script, None);
+        }
+    }
+    pub fn set_design_mode(&self, enabled: bool, theme: &crate::theme::Theme) {
+        let host = self.0.borrow();
+        let css = super::model::DesignPopupTheme::from_theme(theme);
+        let theme_json = serde_json::to_string(&css).unwrap_or_default();
+        let script = format!(
+            r#"(() => {{
+                if (window.__zeron_apply_design_theme) {{
+                    window.__zeron_apply_design_theme({theme_json});
+                }}
                 if (window.__zeron_toggle_design_mode) {{
                     window.__zeron_toggle_design_mode({enabled});
                     return;
@@ -754,6 +775,7 @@ impl NativePage {
                 popup.addEventListener('click', (e) => e.stopPropagation());
 
                 let tagPill = document.createElement('span');
+                tagPill.className = '__zeron_tag_pill__';
                 tagPill.style.display = 'inline-flex';
                 tagPill.style.alignItems = 'center';
                 tagPill.style.gap = '4px';
@@ -782,6 +804,7 @@ impl NativePage {
                 input.style.margin = '0';
 
                 let submitBtn = document.createElement('button');
+                submitBtn.className = '__zeron_submit_btn__';
                 submitBtn.style.width = '24px';
                 submitBtn.style.height = '24px';
                 submitBtn.style.borderRadius = '50%';
@@ -1082,6 +1105,51 @@ impl NativePage {
                 }};
 
                 window.__zeron_clear_design_selection = clearSelection;
+
+                window.__zeron_apply_design_theme = function(t) {{
+                    if (!t) return;
+                    let styleTag = document.getElementById('__zeron_design_theme_styles__');
+                    if (!styleTag) {{
+                        styleTag = document.createElement('style');
+                        styleTag.id = '__zeron_design_theme_styles__';
+                        document.head.appendChild(styleTag);
+                    }}
+                    styleTag.textContent = '#__zeron_design_popup__ input::placeholder {{ color: ' + t.text_muted + ' !important; opacity: 1 !important; }}';
+                    let pop = document.getElementById('__zeron_design_popup__');
+                    if (pop) {{
+                        pop.style.background = t.bg;
+                        pop.style.backdropFilter = t.backdrop_filter;
+                        pop.style.webkitBackdropFilter = t.backdrop_filter;
+                        pop.style.border = '1px solid ' + t.border;
+                        pop.style.boxShadow = t.box_shadow;
+
+                        let pill = pop.querySelector('.__zeron_tag_pill__');
+                        if (pill) {{
+                            pill.style.background = t.tag_bg;
+                            pill.style.color = t.tag_text;
+                            pill.style.border = '1px solid ' + t.border;
+                        }}
+                        let inp = pop.querySelector('input');
+                        if (inp) {{
+                            inp.style.color = t.text;
+                        }}
+                        let btn = pop.querySelector('.__zeron_submit_btn__');
+                        if (btn) {{
+                            btn.style.background = t.submit_bg;
+                            btn.style.color = t.submit_color;
+                        }}
+                    }}
+                    let bdg = document.getElementById('__zeron_design_badge__');
+                    if (bdg) {{
+                        bdg.style.background = t.bg;
+                        bdg.style.backdropFilter = t.backdrop_filter;
+                        bdg.style.webkitBackdropFilter = t.backdrop_filter;
+                        bdg.style.border = '1px solid ' + t.border;
+                        bdg.style.color = t.text_muted;
+                        bdg.style.boxShadow = t.box_shadow;
+                    }}
+                }};
+                window.__zeron_apply_design_theme({theme_json});
 
                 window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: false }});
                 window.addEventListener('pointerdown', onPointerDown, {{ capture: true, passive: false }});

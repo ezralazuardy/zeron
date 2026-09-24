@@ -1,8 +1,8 @@
 use super::{BrowserEvent, BrowserSurface};
 use crate::{icons, surface_chrome, theme::Theme};
 use gpui::{
-    AnyElement, Context, Focusable, IntoElement, KeyDownEvent, MouseButton, Render, Window, div,
-    prelude::*, px,
+    AnimationExt, AnyElement, Context, Focusable, IntoElement, KeyDownEvent, MouseButton, Render,
+    Window, div, prelude::*, px,
 };
 
 fn button(
@@ -22,6 +22,113 @@ fn button(
                 .size(px(surface_chrome::ICON_SIZE))
                 .text_color(theme.text_muted),
         )
+}
+
+fn design_mode_button(
+    active: bool,
+    animating: bool,
+    epoch: usize,
+    enabled: bool,
+    theme: &Theme,
+    cx: &mut Context<BrowserSurface>,
+) -> gpui::AnyElement {
+    let label = if active {
+        "Exit Design Mode (Cmd+Shift+D)"
+    } else {
+        "Design Mode (Cmd+Shift+D)"
+    };
+    let icon_el = icons::icon(icons::PEN)
+        .size(px(surface_chrome::ICON_SIZE))
+        .text_color(if active { theme.accent } else { theme.text_muted })
+        .flex_none();
+
+    let text_content = div()
+        .text_size(crate::typography::ui_rems(11.5))
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(theme.accent)
+        .child("Design");
+
+    let button = crate::files::toolbar_button("browser-design-mode", label)
+        .w_full()
+        .h_full()
+        .overflow_hidden()
+        .when(active || animating, |el| {
+            el.justify_start()
+                .pl(px(6.0))
+                .pr(px(8.0))
+                .gap(px(4.0))
+        })
+        .when(active, |el| {
+            el.bg(theme.accent.opacity(0.18))
+                .border_1()
+                .border_color(theme.accent)
+                .hover(|style| style.bg(theme.accent.opacity(0.26)))
+        })
+        .when(!enabled, |el| el.cursor_default().opacity(0.35))
+        .when(enabled, |el| {
+            el.on_click(cx.listener(|this, _, _, cx| this.toggle_design_mode_force(cx)))
+        })
+        .child(icon_el)
+        .child(if animating {
+            div()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .child(text_content)
+                .with_animation(
+                    gpui::SharedString::from(format!(
+                        "browser-design-text-{epoch}-{}",
+                        if active { "in" } else { "out" }
+                    )),
+                    crate::motion::RESIZE.animation(),
+                    move |el, progress| {
+                        let amount = if active { progress } else { 1.0 - progress };
+                        el.w(px(crate::motion::lerp(0.0, 38.0, amount)))
+                            .opacity(amount)
+                    },
+                )
+                .into_any_element()
+        } else if active {
+            div()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .w(px(38.0))
+                .child(text_content)
+                .into_any_element()
+        } else {
+            div()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .w(px(0.0))
+                .child(text_content)
+                .into_any_element()
+        });
+
+    if animating {
+        div()
+            .h(px(surface_chrome::CONTROL_SIZE))
+            .flex_none()
+            .child(button)
+            .with_animation(
+                gpui::SharedString::from(format!(
+                    "browser-design-wrap-{epoch}-{}",
+                    if active { "in" } else { "out" }
+                )),
+                crate::motion::RESIZE.animation(),
+                move |el, progress| {
+                    let amount = if active { progress } else { 1.0 - progress };
+                    let w = crate::motion::lerp(24.0, 72.0, amount);
+                    el.w(px(w))
+                },
+            )
+            .into_any_element()
+    } else {
+        div()
+            .h(px(surface_chrome::CONTROL_SIZE))
+            .flex_none()
+            .w(px(if active { 72.0 } else { 24.0 }))
+            .child(button)
+            .into_any_element()
+    }
 }
 
 impl BrowserSurface {
@@ -438,27 +545,25 @@ impl Render for BrowserSurface {
         .when(has_page, |el| {
             el.on_click(cx.listener(|this, _, _, cx| this.reload(cx)))
         });
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        if self.design_mode {
+            let key = (theme.appearance, theme.surface_treatment);
+            if self.design_mode_theme_key != Some(key) {
+                self.design_mode_theme_key = Some(key);
+                if let Some(native) = &self.native {
+                    native.sync_design_mode_theme(&theme);
+                }
+            }
+        }
         let design_active = self.design_mode;
-        let design = button(
-            "browser-design-mode",
-            if design_active {
-                "Exit Design Mode (Cmd+Shift+D)"
-            } else {
-                "Design Mode (Cmd+Shift+D)"
-            },
-            icons::PEN,
+        let design = design_mode_button(
+            design_active,
+            self.design_mode_animating,
+            self.design_mode_epoch,
             has_page,
             &theme,
             cx,
-        )
-        .when(design_active, |el| {
-            el.bg(theme.accent.opacity(0.18))
-                .border_1()
-                .border_color(theme.accent)
-        })
-        .when(has_page, |el| {
-            el.on_click(cx.listener(|this, _, _, cx| this.toggle_design_mode_force(cx)))
-        });
+        );
         let address = surface_chrome::input()
             .id("browser-address")
             .when(self.validation.is_some(), |el| {

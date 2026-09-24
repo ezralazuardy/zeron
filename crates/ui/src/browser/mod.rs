@@ -84,6 +84,9 @@ pub struct BrowserSurface {
     pub page: PageState,
     pub favicon: Option<std::sync::Arc<gpui::Image>>,
     pub design_mode: bool,
+    pub design_mode_epoch: usize,
+    pub design_mode_animating: bool,
+    pub design_mode_theme_key: Option<(crate::theme::Appearance, zeron_theme::SurfaceTreatment)>,
     pub console_logs: Vec<model::ConsoleLogEntry>,
     address_edited: bool,
     validation: Option<String>,
@@ -164,6 +167,9 @@ impl BrowserSurface {
             page: PageState::default(),
             favicon: None,
             design_mode: false,
+            design_mode_epoch: 0,
+            design_mode_animating: false,
+            design_mode_theme_key: None,
             console_logs: Vec::new(),
             address_edited: false,
             validation: None,
@@ -272,9 +278,29 @@ impl BrowserSurface {
 
     pub fn toggle_design_mode_force(&mut self, cx: &mut Context<Self>) {
         self.design_mode = !self.design_mode;
+        self.design_mode_epoch = self.design_mode_epoch.wrapping_add(1);
+        self.design_mode_animating = true;
+        let epoch = self.design_mode_epoch;
+        let duration = crate::motion::RESIZE
+            .total()
+            .mul_f32(crate::motion::speed_scale());
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(duration).await;
+            this.update(cx, |this, cx| {
+                if this.design_mode_epoch == epoch {
+                    this.design_mode_animating = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if let Some(native) = &self.native {
-            native.set_design_mode(self.design_mode);
+            let theme = crate::theme::Theme::of(cx);
+            self.design_mode_theme_key = Some((theme.appearance, theme.surface_treatment));
+            native.set_design_mode(self.design_mode, theme);
         }
         if !self.design_mode {
             self.clear_selection();
@@ -715,7 +741,8 @@ impl BrowserSurface {
                 if finished && let Some(url) = &page.url {
                     native.discover_favicon(url.clone());
                     if self.design_mode {
-                        native.set_design_mode(true);
+                        let theme = crate::theme::Theme::of(cx);
+                        native.set_design_mode(true, theme);
                     }
                 }
                 if page != self.page {
