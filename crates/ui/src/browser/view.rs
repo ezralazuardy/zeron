@@ -24,6 +24,40 @@ fn button(
         )
 }
 
+struct DesignModeTooltip {
+    label: &'static str,
+    shortcut: String,
+}
+
+impl Render for DesignModeTooltip {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::of(cx);
+        let card = div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .px(px(9.0))
+            .py(px(6.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme.border)
+            .bg(crate::popover::surface_bg(theme))
+            .font_family(theme.font_sans.clone())
+            .text_size(px(10.5))
+            .child(
+                div()
+                    .text_color(theme.text)
+                    .child(self.label),
+            )
+            .child(
+                div()
+                    .text_color(theme.text_muted)
+                    .child(self.shortcut.clone()),
+            );
+        crate::frost::frosted(6.0, crate::frost::MENU_BLUR, card)
+    }
+}
+
 fn design_mode_button(
     active: bool,
     animating: bool,
@@ -33,10 +67,12 @@ fn design_mode_button(
     cx: &mut Context<BrowserSurface>,
 ) -> gpui::AnyElement {
     let label = if active {
-        "Exit Design Mode (Cmd+Shift+D)"
+        "Exit Design Mode"
     } else {
-        "Design Mode (Cmd+Shift+D)"
+        "Design Mode"
     };
+    let shortcut = crate::settings::badge_combo("mod-shift-d");
+    let aria_label = format!("{label} ({shortcut})");
     let icon_el = icons::icon(icons::PEN)
         .size(px(surface_chrome::ICON_SIZE))
         .text_color(if active { theme.accent } else { theme.text_muted })
@@ -64,13 +100,21 @@ fn design_mode_button(
         .items_center()
         .cursor_pointer()
         .role(gpui::Role::Button)
-        .aria_label(label)
+        .aria_label(aria_label)
         .occlude()
         .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
             window.prevent_default()
         })
         .hover(move |style| style.bg(hover_bg))
         .overflow_hidden()
+        .tooltip(move |_, cx| {
+            cx.new(|_| DesignModeTooltip {
+                label,
+                shortcut: crate::settings::badge_combo("mod-shift-d"),
+            })
+            .into()
+        })
+        .tooltip_show_delay(std::time::Duration::from_millis(350))
         .when(active || animating, |el| {
             el.justify_start()
                 .pl(px(6.0))
