@@ -1581,8 +1581,50 @@ mod tests {
             .unwrap();
         assert!(click.is_object());
 
+        let typed = tools
+            .call(
+                "browser_type",
+                json!({ "selector": "input#query", "text": "hello", "submit": true }),
+            )
+            .await
+            .unwrap();
+        assert!(typed.is_object());
+
+        let scroll = tools
+            .call(
+                "browser_scroll",
+                json!({ "direction": "down", "selector": "#content" }),
+            )
+            .await
+            .unwrap();
+        assert!(scroll.is_object());
+
+        let eval = tools
+            .call(
+                "browser_evaluate",
+                json!({ "script": "document.title" }),
+            )
+            .await
+            .unwrap();
+        assert!(eval.is_object());
+
+        let shot = tools
+            .call(
+                "browser_screenshot",
+                json!({ "selector": "#preview" }),
+            )
+            .await
+            .unwrap();
+        assert!(shot.is_object());
+
+        let state = tools
+            .call("browser_state", json!({}))
+            .await
+            .unwrap();
+        assert!(state.is_object());
+
         let writes = world.writes.lock().unwrap();
-        assert_eq!(writes.len(), 3);
+        assert_eq!(writes.len(), 8);
         assert_eq!(writes[0].0, methods::BROWSER_COMMAND);
         assert_eq!(writes[0].1["action"], "navigate");
         assert_eq!(writes[0].1["url"], "https://example.com");
@@ -1590,5 +1632,52 @@ mod tests {
         assert_eq!(writes[1].1["clear"], true);
         assert_eq!(writes[2].1["action"], "click");
         assert_eq!(writes[2].1["selector"], "#submit");
+        assert_eq!(writes[3].1["action"], "type");
+        assert_eq!(writes[3].1["selector"], "input#query");
+        assert_eq!(writes[3].1["text"], "hello");
+        assert_eq!(writes[3].1["submit"], true);
+        assert_eq!(writes[4].1["action"], "scroll");
+        assert_eq!(writes[4].1["direction"], "down");
+        assert_eq!(writes[4].1["selector"], "#content");
+        assert_eq!(writes[5].1["action"], "evaluate");
+        assert_eq!(writes[5].1["script"], "document.title");
+        assert_eq!(writes[6].1["action"], "screenshot");
+        assert_eq!(writes[6].1["selector"], "#preview");
+        assert_eq!(writes[7].1["action"], "get_view");
+    }
+
+    #[tokio::test]
+    async fn browser_tools_validate_required_arguments() {
+        let world = Arc::new(World::default());
+        let tools = tools(world, Origin::default());
+
+        assert!(
+            tools
+                .call("browser_navigate", json!({}))
+                .await
+                .unwrap_err()
+                .contains("missing field `url`")
+        );
+        assert!(
+            tools
+                .call("browser_click", json!({}))
+                .await
+                .unwrap_err()
+                .contains("missing field `selector`")
+        );
+        assert!(
+            tools
+                .call("browser_type", json!({ "selector": "#input" }))
+                .await
+                .unwrap_err()
+                .contains("missing field `text`")
+        );
+        assert!(
+            tools
+                .call("browser_evaluate", json!({}))
+                .await
+                .unwrap_err()
+                .contains("missing field `script`")
+        );
     }
 }

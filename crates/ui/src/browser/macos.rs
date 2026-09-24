@@ -1354,7 +1354,11 @@ impl NativePage {
                     let unionH = Math.max(10, maxY - minY);
                     let fullPrompt = formatElementPrompt(primary.info);
                     if (promptText) {{
-                        fullPrompt += '\n ' + promptText;
+                        if (promptText.startsWith('@')) {{
+                            fullPrompt += '\n' + promptText;
+                        }} else {{
+                            fullPrompt += '\n ' + promptText;
+                        }}
                     }}
                     let payload = {{
                         action: 'inspect_submit',

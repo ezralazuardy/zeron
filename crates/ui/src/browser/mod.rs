@@ -1008,4 +1008,104 @@ mod tests {
             );
         });
     }
+
+    #[gpui::test]
+    fn execute_command_handles_view_logs_and_errors(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_base::init(cx);
+            crate::composer::init(cx, Default::default());
+            cx.set_global(crate::theme::Theme::default());
+        });
+        let window = cx.add_window(|window, cx| {
+            BrowserSurface::new(BrowserContext::default(), false, window, cx)
+        });
+        window
+            .update(cx, |browser, window, cx| {
+                browser.page.url = Some("https://example.com/app".into());
+                browser.page.title = "App Dashboard".into();
+                browser.page.loading = false;
+                browser.console_logs.push(model::ConsoleLogEntry {
+                    level: "error".into(),
+                    text: "Uncaught ReferenceError: foo is not defined".into(),
+                    timestamp: 1000,
+                });
+                browser.console_logs.push(model::ConsoleLogEntry {
+                    level: "info".into(),
+                    text: "App initialized".into(),
+                    timestamp: 1001,
+                });
+
+                // Test get_view
+                let (tx, rx) = std::sync::mpsc::channel();
+                browser.execute_command("get_view", &serde_json::json!({}), window, cx, move |res| {
+                    let _ = tx.send(res);
+                });
+                let val = rx.recv().expect("get_view responded").expect("get_view ok");
+                assert_eq!(val["url"], "https://example.com/app");
+                assert_eq!(val["title"], "App Dashboard");
+                assert_eq!(val["consoleLogCount"], 2);
+
+                // Test console_logs filtering by error level
+                let (tx, rx) = std::sync::mpsc::channel();
+                browser.execute_command(
+                    "console_logs",
+                    &serde_json::json!({ "level": "error" }),
+                    window,
+                    cx,
+                    move |res| { let _ = tx.send(res); },
+                );
+                let val = rx.recv().expect("console_logs responded").expect("ok");
+                let logs = val["logs"].as_array().expect("logs array");
+                assert_eq!(logs.len(), 1);
+                assert_eq!(logs[0]["level"], "error");
+
+                // Test console_logs clear
+                let (tx, rx) = std::sync::mpsc::channel();
+                browser.execute_command(
+                    "console_logs",
+                    &serde_json::json!({ "clear": true }),
+                    window,
+                    cx,
+                    move |res| { let _ = tx.send(res); },
+                );
+                assert!(rx.recv().is_ok());
+                assert!(browser.console_logs.is_empty());
+
+                // Test navigate missing url error
+                let (tx, rx) = std::sync::mpsc::channel();
+                browser.execute_command(
+                    "navigate",
+                    &serde_json::json!({}),
+                    window,
+                    cx,
+                    move |res| { let _ = tx.send(res); },
+                );
+                assert_eq!(rx.recv().unwrap().unwrap_err(), "Missing url");
+
+                // Test unknown action error
+                let (tx, rx) = std::sync::mpsc::channel();
+                browser.execute_command(
+                    "custom_unknown",
+                    &serde_json::json!({}),
+                    window,
+                    cx,
+                    move |res| { let _ = tx.send(res); },
+                );
+                assert!(rx.recv().unwrap().unwrap_err().contains("Unknown browser action"));
+
+                // Test design mode toggle and selection clearing
+                assert!(!browser.design_mode);
+                browser.toggle_design_mode_force(cx);
+                assert!(browser.design_mode);
+                assert_eq!(browser.design_mode_epoch, 1);
+                assert!(browser.design_mode_animating);
+
+                browser.toggle_design_mode_force(cx);
+                assert!(!browser.design_mode);
+                assert_eq!(browser.design_mode_epoch, 2);
+
+                browser.clear_selection();
+            })
+            .unwrap();
+    }
 }

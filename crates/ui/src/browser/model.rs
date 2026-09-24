@@ -93,18 +93,23 @@ impl InspectedElement {
     }
 
     pub fn to_prompt_context(&self) -> String {
-        if self.elements.len() > 1 {
-            let mut result = String::new();
-            for (idx, elem) in self.elements.iter().enumerate() {
-                if idx > 0 {
-                    result.push_str("\n\n");
-                }
-                result.push_str(&elem.single_prompt_context());
-            }
-            result
+        let mut result = if self.elements.len() > 1 {
+            self.elements
+                .iter()
+                .map(|elem| elem.single_prompt_context())
+                .collect::<Vec<_>>()
+                .join("\n\n")
         } else {
             self.single_prompt_context()
+        };
+        if let Some(user_prompt) = &self.user_prompt {
+            let trimmed = user_prompt.trim();
+            if !trimmed.is_empty() {
+                result.push_str("\n\n");
+                result.push_str(trimmed);
+            }
         }
+        result
     }
 }
 
