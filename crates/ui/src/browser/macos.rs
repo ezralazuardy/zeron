@@ -421,6 +421,11 @@ impl NativePage {
                                 if let Some(prompt) = value.get("user_prompt").and_then(|v| v.as_str()) {
                                     elem.user_prompt = Some(prompt.to_string());
                                 }
+                                if let Some(elems_val) = value.get("elements").or_else(|| elem_val.get("elements")) {
+                                    if let Ok(elems) = serde_json::from_value::<Vec<super::model::InspectedElement>>(elems_val.clone()) {
+                                        elem.elements = elems;
+                                    }
+                                }
                                 let x = elem_val.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let y = elem_val.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                 let w = elem_val.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -733,15 +738,21 @@ impl NativePage {
                 badge.style.overflow = 'hidden';
                 badge.style.textOverflow = 'ellipsis';
 
-                let selectedOverlay = document.createElement('div');
-                selectedOverlay.id = '__zeron_design_selected__';
-                selectedOverlay.style.position = 'fixed';
-                selectedOverlay.style.pointerEvents = 'none';
-                selectedOverlay.style.zIndex = '2147483646';
-                selectedOverlay.style.border = '2px solid #3b82f6';
-                selectedOverlay.style.boxShadow = '0 0 0 1px rgba(59, 130, 246, 0.4)';
-                selectedOverlay.style.borderRadius = '2px';
-                selectedOverlay.style.display = 'none';
+                let currentTheme = null;
+                function getColor(idx) {{
+                    if (currentTheme && currentTheme.palette && currentTheme.palette.length > 0) {{
+                        return currentTheme.palette[idx % currentTheme.palette.length];
+                    }}
+                    let fallback = [
+                        {{ border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.18)', text: '#60a5fa', shadow: '0 0 0 1px rgba(59, 130, 246, 0.4)' }},
+                        {{ border: '#818cf8', bg: 'rgba(129, 140, 248, 0.18)', text: '#a5b4fc', shadow: '0 0 0 1px rgba(129, 140, 248, 0.4)' }},
+                        {{ border: '#34d399', bg: 'rgba(52, 211, 153, 0.18)', text: '#6ee7b7', shadow: '0 0 0 1px rgba(52, 211, 153, 0.4)' }},
+                        {{ border: '#fb923c', bg: 'rgba(251, 146, 60, 0.18)', text: '#fdba74', shadow: '0 0 0 1px rgba(251, 146, 60, 0.4)' }},
+                        {{ border: '#f472b6', bg: 'rgba(244, 114, 182, 0.18)', text: '#f9a8d4', shadow: '0 0 0 1px rgba(244, 114, 182, 0.4)' }},
+                        {{ border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.18)', text: '#7dd3fc', shadow: '0 0 0 1px rgba(56, 189, 248, 0.4)' }},
+                    ];
+                    return fallback[idx % fallback.length];
+                }}
 
                 let dragOverlay = document.createElement('div');
                 dragOverlay.id = '__zeron_design_drag__';
@@ -759,12 +770,12 @@ impl NativePage {
                 popup.style.zIndex = '2147483647';
                 popup.style.display = 'none';
                 popup.style.alignItems = 'center';
-                popup.style.gap = '8px';
+                popup.style.gap = '6px';
                 popup.style.background = '#18181b';
                 popup.style.border = '1px solid rgba(255, 255, 255, 0.16)';
                 popup.style.borderRadius = '9999px';
                 popup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3)';
-                popup.style.padding = '4px 6px 4px 10px';
+                popup.style.padding = '4px 6px 4px 8px';
                 popup.style.boxSizing = 'border-box';
                 popup.style.userSelect = 'none';
                 popup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -774,20 +785,15 @@ impl NativePage {
                 popup.addEventListener('mouseup', (e) => e.stopPropagation());
                 popup.addEventListener('click', (e) => e.stopPropagation());
 
-                let tagPill = document.createElement('span');
-                tagPill.className = '__zeron_tag_pill__';
-                tagPill.style.display = 'inline-flex';
-                tagPill.style.alignItems = 'center';
-                tagPill.style.gap = '4px';
-                tagPill.style.background = 'rgba(255, 255, 255, 0.08)';
-                tagPill.style.color = '#d4d4d8';
-                tagPill.style.fontSize = '11px';
-                tagPill.style.fontWeight = '500';
-                tagPill.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-                tagPill.style.padding = '2px 8px';
-                tagPill.style.borderRadius = '9999px';
-                tagPill.style.flexShrink = '0';
-                tagPill.textContent = 'element';
+                let pillsContainer = document.createElement('div');
+                pillsContainer.className = '__zeron_pills_container__';
+                pillsContainer.style.display = 'inline-flex';
+                pillsContainer.style.alignItems = 'center';
+                pillsContainer.style.gap = '4px';
+                pillsContainer.style.flexShrink = '0';
+                pillsContainer.style.maxWidth = '320px';
+                pillsContainer.style.overflowX = 'auto';
+                pillsContainer.style.scrollbarWidth = 'none';
 
                 let input = document.createElement('input');
                 input.type = 'text';
@@ -797,7 +803,9 @@ impl NativePage {
                 input.style.outline = 'none';
                 input.style.color = '#ffffff';
                 input.style.fontSize = '13px';
-                input.style.width = '200px';
+                input.style.minWidth = '140px';
+                input.style.maxWidth = '260px';
+                input.style.flexGrow = '1';
                 input.style.fontFamily = 'inherit';
                 input.style.lineHeight = '20px';
                 input.style.padding = '0';
@@ -820,20 +828,17 @@ impl NativePage {
                 submitBtn.style.flexShrink = '0';
                 submitBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 
-                popup.appendChild(tagPill);
+                popup.appendChild(pillsContainer);
                 popup.appendChild(input);
                 popup.appendChild(submitBtn);
 
                 document.documentElement.appendChild(overlay);
                 document.documentElement.appendChild(badge);
-                document.documentElement.appendChild(selectedOverlay);
                 document.documentElement.appendChild(dragOverlay);
                 document.documentElement.appendChild(popup);
 
                 let hoveredEl = null;
-                let selectedEl = null;
-                let selectedRect = null;
-                let selectedInfo = null;
+                let selectedElements = [];
                 let rafId = null;
 
                 let isMouseDown = false;
@@ -862,15 +867,12 @@ impl NativePage {
                     return path.join(' > ');
                 }}
 
-                function clearSelection() {{
-                    selectedEl = null;
-                    selectedRect = null;
-                    selectedInfo = null;
-                    if (selectedOverlay) selectedOverlay.style.display = 'none';
-                    if (popup) {{
-                        popup.style.display = 'none';
-                        if (input) input.value = '';
-                    }}
+                function positionBadge(badgeEl, rect) {{
+                    let top = rect.top - 22;
+                    if (top < 4) top = rect.bottom + 4;
+                    let left = Math.min(Math.max(4, rect.left), Math.max(4, window.innerWidth - 120));
+                    badgeEl.style.left = left + 'px';
+                    badgeEl.style.top = top + 'px';
                 }}
 
                 function positionPopup(rect) {{
@@ -878,52 +880,191 @@ impl NativePage {
                     if (top + 46 > window.innerHeight) {{
                         top = Math.max(8, rect.top - 46);
                     }}
-                    let left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 320));
+                    let left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 380));
                     popup.style.top = top + 'px';
                     popup.style.left = left + 'px';
                 }}
 
-                function showSelection(rect, el, info) {{
-                    selectedEl = el;
-                    selectedRect = rect;
-                    selectedInfo = info;
+                function clearSelection() {{
+                    for (let item of selectedElements) {{
+                        if (item.overlayEl && item.overlayEl.parentNode) item.overlayEl.remove();
+                        if (item.badgeEl && item.badgeEl.parentNode) item.badgeEl.remove();
+                        if (item.pillEl && item.pillEl.parentNode) item.pillEl.remove();
+                    }}
+                    selectedElements = [];
+                    if (popup) {{
+                        popup.style.display = 'none';
+                        if (input) input.value = '';
+                    }}
+                    if (pillsContainer) {{
+                        pillsContainer.innerHTML = '';
+                    }}
+                }}
 
-                    selectedOverlay.style.left = rect.left + 'px';
-                    selectedOverlay.style.top = rect.top + 'px';
-                    selectedOverlay.style.width = rect.width + 'px';
-                    selectedOverlay.style.height = rect.height + 'px';
-                    selectedOverlay.style.display = 'block';
+                function removeElement(targetItem) {{
+                    if (targetItem.overlayEl && targetItem.overlayEl.parentNode) targetItem.overlayEl.remove();
+                    if (targetItem.badgeEl && targetItem.badgeEl.parentNode) targetItem.badgeEl.remove();
+                    if (targetItem.pillEl && targetItem.pillEl.parentNode) targetItem.pillEl.remove();
+
+                    selectedElements = selectedElements.filter(it => it !== targetItem);
+
+                    if (selectedElements.length === 0) {{
+                        clearSelection();
+                        return;
+                    }}
+
+                    for (let i = 0; i < selectedElements.length; i++) {{
+                        let it = selectedElements[i];
+                        let col = getColor(i);
+                        it.overlayEl.style.border = '2px solid ' + col.border;
+                        it.overlayEl.style.boxShadow = col.shadow;
+                        it.badgeEl.style.background = col.bg;
+                        it.badgeEl.style.color = col.text;
+                        it.badgeEl.style.border = '1px solid ' + col.border;
+                        it.pillEl.style.background = col.bg;
+                        it.pillEl.style.color = col.text;
+                        it.pillEl.style.border = '1px solid ' + col.border;
+                    }}
+                    input.focus();
+                }}
+
+                function addElement(el, rect, info) {{
+                    let idx = selectedElements.length;
+                    let color = getColor(idx);
+
+                    let overlayEl = document.createElement('div');
+                    overlayEl.className = '__zeron_design_selected_overlay__';
+                    overlayEl.style.position = 'fixed';
+                    overlayEl.style.pointerEvents = 'none';
+                    overlayEl.style.zIndex = '2147483645';
+                    overlayEl.style.border = '2px solid ' + color.border;
+                    overlayEl.style.boxShadow = color.shadow;
+                    overlayEl.style.borderRadius = '2px';
+                    overlayEl.style.left = rect.left + 'px';
+                    overlayEl.style.top = rect.top + 'px';
+                    overlayEl.style.width = rect.width + 'px';
+                    overlayEl.style.height = rect.height + 'px';
+                    overlayEl.style.display = 'block';
+
+                    let badgeEl = document.createElement('div');
+                    badgeEl.className = '__zeron_design_selected_badge__';
+                    badgeEl.style.position = 'fixed';
+                    badgeEl.style.pointerEvents = 'none';
+                    badgeEl.style.zIndex = '2147483646';
+                    badgeEl.style.background = color.bg;
+                    badgeEl.style.color = color.text;
+                    badgeEl.style.border = '1px solid ' + color.border;
+                    badgeEl.style.borderRadius = '4px';
+                    badgeEl.style.padding = '1px 6px';
+                    badgeEl.style.fontSize = '11px';
+                    badgeEl.style.fontWeight = '600';
+                    badgeEl.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+                    badgeEl.style.whiteSpace = 'nowrap';
+                    badgeEl.textContent = info.tag || 'element';
+                    if (currentTheme && currentTheme.backdrop_filter && currentTheme.backdrop_filter !== 'none') {{
+                        badgeEl.style.webkitBackdropFilter = currentTheme.backdrop_filter;
+                        badgeEl.style.backdropFilter = currentTheme.backdrop_filter;
+                    }}
+                    positionBadge(badgeEl, rect);
+
+                    document.documentElement.appendChild(overlayEl);
+                    document.documentElement.appendChild(badgeEl);
+
+                    let item = {{ el, rect, info, overlayEl, badgeEl, pillEl: null }};
+
+                    let pillEl = document.createElement('span');
+                    pillEl.className = '__zeron_tag_pill__';
+                    pillEl.style.display = 'inline-flex';
+                    pillEl.style.alignItems = 'center';
+                    pillEl.style.gap = '3px';
+                    pillEl.style.background = color.bg;
+                    pillEl.style.color = color.text;
+                    pillEl.style.border = '1px solid ' + color.border;
+                    pillEl.style.fontSize = '11px';
+                    pillEl.style.fontWeight = '500';
+                    pillEl.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+                    pillEl.style.padding = '2px 6px 2px 8px';
+                    pillEl.style.borderRadius = '9999px';
+                    pillEl.style.flexShrink = '0';
+
+                    let tagSpan = document.createElement('span');
+                    tagSpan.textContent = info.tag || 'element';
+                    pillEl.appendChild(tagSpan);
+
+                    let removeBtn = document.createElement('span');
+                    removeBtn.innerHTML = '×';
+                    removeBtn.style.fontSize = '13px';
+                    removeBtn.style.lineHeight = '1';
+                    removeBtn.style.cursor = 'pointer';
+                    removeBtn.style.opacity = '0.65';
+                    removeBtn.style.marginLeft = '2px';
+                    removeBtn.style.fontWeight = 'bold';
+                    removeBtn.title = 'Remove';
+                    removeBtn.addEventListener('mouseenter', () => removeBtn.style.opacity = '1.0');
+                    removeBtn.addEventListener('mouseleave', () => removeBtn.style.opacity = '0.65');
+                    removeBtn.addEventListener('click', (e) => {{
+                        e.stopPropagation();
+                        removeElement(item);
+                    }});
+                    pillEl.appendChild(removeBtn);
+
+                    pillsContainer.appendChild(pillEl);
+                    item.pillEl = pillEl;
+
+                    selectedElements.push(item);
 
                     overlay.style.display = 'none';
                     badge.style.display = 'none';
 
-                    tagPill.textContent = info.tag || 'element';
-                    input.value = '';
-                    positionPopup(rect);
-                    popup.style.display = 'flex';
+                    if (idx === 0) {{
+                        input.value = '';
+                        positionPopup(rect);
+                        popup.style.display = 'flex';
+                    }}
                     setTimeout(() => input.focus(), 20);
                 }}
 
                 function doSubmit() {{
-                    if (!selectedRect || !selectedInfo) return;
+                    if (selectedElements.length === 0) return;
                     let promptText = input.value.trim();
-                    let rect = selectedRect;
-                    let info = selectedInfo;
+                    let primary = selectedElements[0];
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    let elementsList = selectedElements.map(s => {{
+                        minX = Math.min(minX, s.rect.left);
+                        minY = Math.min(minY, s.rect.top);
+                        maxX = Math.max(maxX, s.rect.right);
+                        maxY = Math.max(maxY, s.rect.bottom);
+                        return {{
+                            tag: s.info.tag,
+                            id: s.info.id || '',
+                            classes: s.info.classes || '',
+                            selector: s.info.selector || '',
+                            text: s.info.text || '',
+                            x: Math.max(0, s.rect.left),
+                            y: Math.max(0, s.rect.top),
+                            w: Math.max(0, s.rect.width),
+                            h: Math.max(0, s.rect.height),
+                        }};
+                    }});
+                    let unionW = Math.max(10, maxX - minX);
+                    let unionH = Math.max(10, maxY - minY);
                     let payload = {{
                         action: 'inspect_submit',
                         user_prompt: promptText,
                         element: {{
-                            tag: info.tag,
-                            id: info.id || '',
-                            classes: info.classes || '',
-                            selector: info.selector || '',
-                            text: info.text || '',
-                            x: Math.max(0, rect.left),
-                            y: Math.max(0, rect.top),
-                            w: Math.max(0, rect.width),
-                            h: Math.max(0, rect.height),
-                            user_prompt: promptText
-                        }}
+                            tag: primary.info.tag,
+                            id: primary.info.id || '',
+                            classes: primary.info.classes || '',
+                            selector: primary.info.selector || '',
+                            text: primary.info.text || '',
+                            x: Math.max(0, minX),
+                            y: Math.max(0, minY),
+                            w: Math.min(window.innerWidth, unionW),
+                            h: Math.min(window.innerHeight, unionH),
+                            user_prompt: promptText,
+                            elements: elementsList
+                        }},
+                        elements: elementsList
                     }};
                     clearSelection();
                     if (window.ipc && window.ipc.postMessage) {{
@@ -939,6 +1080,9 @@ impl NativePage {
                     }} else if (e.key === 'Escape') {{
                         e.preventDefault();
                         clearSelection();
+                    }} else if (e.key === 'Backspace' && input.value === '' && selectedElements.length > 1) {{
+                        e.preventDefault();
+                        removeElement(selectedElements[selectedElements.length - 1]);
                     }}
                 }});
                 input.addEventListener('keyup', (e) => e.stopPropagation());
@@ -978,7 +1122,7 @@ impl NativePage {
                     if (rafId) cancelAnimationFrame(rafId);
                     rafId = requestAnimationFrame(() => {{
                         let target = document.elementFromPoint(e.clientX, e.clientY);
-                        if (!target || target === overlay || target === badge || target === selectedOverlay || target === dragOverlay || popup.contains(target) || target === document.documentElement || target === document.body) {{
+                        if (!target || target === overlay || target === badge || target === dragOverlay || popup.contains(target) || target === document.documentElement || target === document.body || (target.className && typeof target.className === 'string' && target.className.includes('__zeron_'))) {{
                             overlay.style.display = 'none';
                             badge.style.display = 'none';
                             hoveredEl = null;
@@ -993,7 +1137,10 @@ impl NativePage {
                         overlay.style.display = 'block';
 
                         let tag = target.tagName.toLowerCase();
-                        badge.innerHTML = (tag ? '<span style="font-weight:600;font-family:monospace;color:#60a5fa;margin-right:6px;">' + tag + '</span>' : '') + 'Click to select, drag to draw';
+                        let tagColor = (currentTheme && currentTheme.palette && currentTheme.palette[0]) ? currentTheme.palette[0].text : '#60a5fa';
+                        let isMulti = selectedElements.length > 0;
+                        let hint = isMulti ? 'Click to add element' : 'Click to select, drag to draw';
+                        badge.innerHTML = (tag ? '<span style=\"font-weight:600;font-family:monospace;color:' + tagColor + ';margin-right:6px;\">' + tag + '</span>' : '') + hint;
                         let badgeTop = rect.bottom + 6;
                         if (badgeTop + 30 > window.innerHeight) badgeTop = Math.max(4, rect.top - 28);
                         let maxLeft = Math.max(4, window.innerWidth - 300);
@@ -1024,9 +1171,9 @@ impl NativePage {
                         let w = Math.abs(e.clientX - startX);
                         let h = Math.abs(e.clientY - startY);
                         if (w >= 10 && h >= 10) {{
-                            showSelection(
-                                {{ left: l, top: t, width: w, height: h, bottom: t + h, right: l + w }},
+                            addElement(
                                 null,
+                                {{ left: l, top: t, width: w, height: h, bottom: t + h, right: l + w }},
                                 {{ tag: 'area', id: '', classes: '', selector: 'area', text: '' }}
                             );
                         }}
@@ -1044,24 +1191,27 @@ impl NativePage {
 
                     if (hoveredEl) {{
                         let el = hoveredEl;
+                        let existing = selectedElements.find(s => s.el === el);
+                        if (existing) {{
+                            removeElement(existing);
+                            return;
+                        }}
                         let rect = el.getBoundingClientRect();
                         let tag = el.tagName.toLowerCase();
                         let id = el.id || '';
                         let classes = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '').trim();
-                        let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                        let text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 100);
                         let selector = getSelector(el);
-                        showSelection(
-                            {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }},
+                        addElement(
                             el,
+                            {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }},
                             {{ tag, id, classes, selector, text }}
                         );
-                    }} else if (!selectedEl) {{
-                        clearSelection();
                     }}
                 }}
 
                 function onScroll() {{
-                    if (active && hoveredEl && !selectedEl) {{
+                    if (active && hoveredEl && selectedElements.length === 0) {{
                         let rect = hoveredEl.getBoundingClientRect();
                         overlay.style.left = rect.left + 'px';
                         overlay.style.top = rect.top + 'px';
@@ -1073,14 +1223,19 @@ impl NativePage {
                         badge.style.left = Math.min(Math.max(4, rect.left), maxLeft) + 'px';
                         badge.style.top = badgeTop + 'px';
                     }}
-                    if (selectedEl) {{
-                        let rect = selectedEl.getBoundingClientRect();
-                        selectedRect = {{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, bottom: rect.bottom, right: rect.right }};
-                        selectedOverlay.style.left = rect.left + 'px';
-                        selectedOverlay.style.top = rect.top + 'px';
-                        selectedOverlay.style.width = rect.width + 'px';
-                        selectedOverlay.style.height = rect.height + 'px';
-                        positionPopup(selectedRect);
+                    for (let item of selectedElements) {{
+                        if (item.el) {{
+                            let r = item.el.getBoundingClientRect();
+                            item.rect = {{ left: r.left, top: r.top, width: r.width, height: r.height, bottom: r.bottom, right: r.right }};
+                            item.overlayEl.style.left = r.left + 'px';
+                            item.overlayEl.style.top = r.top + 'px';
+                            item.overlayEl.style.width = r.width + 'px';
+                            item.overlayEl.style.height = r.height + 'px';
+                            positionBadge(item.badgeEl, item.rect);
+                        }}
+                    }}
+                    if (selectedElements.length > 0) {{
+                        positionPopup(selectedElements[0].rect);
                     }}
                 }}
 
@@ -1108,6 +1263,7 @@ impl NativePage {
 
                 window.__zeron_apply_design_theme = function(t) {{
                     if (!t) return;
+                    currentTheme = t;
                     let styleTag = document.getElementById('__zeron_design_theme_styles__');
                     if (!styleTag) {{
                         styleTag = document.createElement('style');
@@ -1123,12 +1279,6 @@ impl NativePage {
                         pop.style.border = '1px solid ' + t.border;
                         pop.style.boxShadow = t.box_shadow;
 
-                        let pill = pop.querySelector('.__zeron_tag_pill__');
-                        if (pill) {{
-                            pill.style.background = t.tag_bg;
-                            pill.style.color = t.tag_text;
-                            pill.style.border = '1px solid ' + t.border;
-                        }}
                         let inp = pop.querySelector('input');
                         if (inp) {{
                             inp.style.color = t.text;
@@ -1137,6 +1287,28 @@ impl NativePage {
                         if (btn) {{
                             btn.style.background = t.submit_bg;
                             btn.style.color = t.submit_color;
+                        }}
+                    }}
+                    for (let i = 0; i < selectedElements.length; i++) {{
+                        let it = selectedElements[i];
+                        let col = getColor(i);
+                        if (it.overlayEl) {{
+                            it.overlayEl.style.border = '2px solid ' + col.border;
+                            it.overlayEl.style.boxShadow = col.shadow;
+                        }}
+                        if (it.badgeEl) {{
+                            it.badgeEl.style.background = col.bg;
+                            it.badgeEl.style.color = col.text;
+                            it.badgeEl.style.border = '1px solid ' + col.border;
+                            if (t.backdrop_filter && t.backdrop_filter !== 'none') {{
+                                it.badgeEl.style.webkitBackdropFilter = t.backdrop_filter;
+                                it.badgeEl.style.backdropFilter = t.backdrop_filter;
+                            }}
+                        }}
+                        if (it.pillEl) {{
+                            it.pillEl.style.background = col.bg;
+                            it.pillEl.style.color = col.text;
+                            it.pillEl.style.border = '1px solid ' + col.border;
                         }}
                     }}
                     let bdg = document.getElementById('__zeron_design_badge__');

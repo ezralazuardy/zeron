@@ -36,6 +36,8 @@ pub struct InspectedElement {
     pub screenshot: Option<Vec<u8>>,
     #[serde(default)]
     pub user_prompt: Option<String>,
+    #[serde(default)]
+    pub elements: Vec<InspectedElement>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -46,7 +48,7 @@ pub struct ConsoleLogEntry {
 }
 
 impl InspectedElement {
-    pub fn to_prompt_context(&self) -> String {
+    fn single_prompt_context(&self) -> String {
         let mut desc = self.tag.clone();
         if !self.id.is_empty() {
             desc.push('#');
@@ -65,6 +67,18 @@ impl InspectedElement {
             format!("[Element: {} \"{}\"] ", desc, self.text)
         } else {
             format!("[Element: {}] ", desc)
+        }
+    }
+
+    pub fn to_prompt_context(&self) -> String {
+        if self.elements.len() > 1 {
+            let mut result = String::new();
+            for elem in &self.elements {
+                result.push_str(&elem.single_prompt_context());
+            }
+            result
+        } else {
+            self.single_prompt_context()
         }
     }
 }
@@ -168,6 +182,14 @@ pub fn presentation(active: bool, dragging: bool) -> Presentation {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DesignElementColor {
+    pub border: String,
+    pub bg: String,
+    pub text: String,
+    pub shadow: String,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DesignPopupTheme {
     pub bg: String,
@@ -180,6 +202,7 @@ pub struct DesignPopupTheme {
     pub submit_bg: String,
     pub submit_color: String,
     pub box_shadow: String,
+    pub palette: Vec<DesignElementColor>,
 }
 
 pub fn hsla_to_css(color: gpui::Hsla) -> String {
@@ -200,12 +223,84 @@ impl DesignPopupTheme {
         let border = hsla_to_css(theme.border);
         let text = hsla_to_css(theme.text);
         let text_muted = hsla_to_css(theme.text_muted);
-        let tag_bg = if is_glass {
-            hsla_to_css(theme.wash(0.08))
-        } else {
-            hsla_to_css(theme.surface_raised)
+        let first_color = DesignElementColor {
+            border: hsla_to_css(theme.accent),
+            bg: hsla_to_css(theme.accent_wash),
+            text: hsla_to_css(theme.accent),
+            shadow: format!("0 0 0 1px {}", hsla_to_css(theme.accent.opacity(0.4))),
         };
-        let tag_text = hsla_to_css(theme.text_muted);
+        let is_dark = theme.appearance.is_dark();
+        let rest = if is_dark {
+            vec![
+                DesignElementColor {
+                    border: "rgba(129, 140, 248, 1.0)".into(),
+                    bg: "rgba(129, 140, 248, 0.18)".into(),
+                    text: "rgba(165, 180, 252, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(129, 140, 248, 0.4)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(52, 211, 153, 1.0)".into(),
+                    bg: "rgba(52, 211, 153, 0.18)".into(),
+                    text: "rgba(110, 231, 183, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(52, 211, 153, 0.4)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(251, 146, 60, 1.0)".into(),
+                    bg: "rgba(251, 146, 60, 0.18)".into(),
+                    text: "rgba(253, 186, 116, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(251, 146, 60, 0.4)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(244, 114, 182, 1.0)".into(),
+                    bg: "rgba(244, 114, 182, 0.18)".into(),
+                    text: "rgba(249, 168, 212, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(244, 114, 182, 0.4)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(56, 189, 248, 1.0)".into(),
+                    bg: "rgba(56, 189, 248, 0.18)".into(),
+                    text: "rgba(125, 211, 252, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(56, 189, 248, 0.4)".into(),
+                },
+            ]
+        } else {
+            vec![
+                DesignElementColor {
+                    border: "rgba(99, 102, 241, 1.0)".into(),
+                    bg: "rgba(99, 102, 241, 0.14)".into(),
+                    text: "rgba(79, 70, 229, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(99, 102, 241, 0.35)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(16, 185, 129, 1.0)".into(),
+                    bg: "rgba(16, 185, 129, 0.14)".into(),
+                    text: "rgba(4, 120, 87, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(16, 185, 129, 0.35)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(249, 115, 22, 1.0)".into(),
+                    bg: "rgba(249, 115, 22, 0.14)".into(),
+                    text: "rgba(194, 65, 12, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(249, 115, 22, 0.35)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(236, 72, 153, 1.0)".into(),
+                    bg: "rgba(236, 72, 153, 0.14)".into(),
+                    text: "rgba(190, 24, 93, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(236, 72, 153, 0.35)".into(),
+                },
+                DesignElementColor {
+                    border: "rgba(2, 132, 199, 1.0)".into(),
+                    bg: "rgba(2, 132, 199, 0.14)".into(),
+                    text: "rgba(3, 105, 161, 1.0)".into(),
+                    shadow: "0 0 0 1px rgba(2, 132, 199, 0.35)".into(),
+                },
+            ]
+        };
+        let tag_bg = first_color.bg.clone();
+        let tag_text = first_color.text.clone();
+        let mut palette = vec![first_color];
+        palette.extend(rest);
         let submit_bg = hsla_to_css(theme.text);
         let submit_color = hsla_to_css(theme.bg);
         let (backdrop_filter, box_shadow) = if is_glass {
@@ -231,6 +326,7 @@ impl DesignPopupTheme {
             submit_bg,
             submit_color,
             box_shadow,
+            palette,
         }
     }
 }
@@ -249,6 +345,7 @@ mod tests {
             text: "Submit Form".into(),
             screenshot: None,
             user_prompt: None,
+            elements: Vec::new(),
         };
         assert_eq!(
             el.to_prompt_context(),
@@ -264,6 +361,7 @@ mod tests {
             text: "Hero Content".into(),
             screenshot: None,
             user_prompt: None,
+            elements: Vec::new(),
         };
         assert_eq!(
             el_selector.to_prompt_context(),
@@ -279,6 +377,7 @@ mod tests {
             text: "".into(),
             screenshot: None,
             user_prompt: None,
+            elements: Vec::new(),
         };
         assert_eq!(el_no_text.to_prompt_context(), "[Element: input#search] ");
 
@@ -361,9 +460,53 @@ mod tests {
         let frosted = DesignPopupTheme::from_theme(&theme);
         assert!(frosted.backdrop_filter.contains("blur"));
         assert!(frosted.bg.contains("rgba"));
+        assert!(!frosted.palette.is_empty());
+        // First color matches theme accent
+        assert_eq!(frosted.palette[0].border, hsla_to_css(theme.accent));
+        assert_eq!(frosted.palette[0].text, hsla_to_css(theme.accent));
+        assert_eq!(frosted.palette[0].bg, hsla_to_css(theme.accent_wash));
 
         theme.surface_treatment = zeron_theme::SurfaceTreatment::Opaque;
         let opaque = DesignPopupTheme::from_theme(&theme);
         assert_eq!(opaque.backdrop_filter, "none");
+        assert_eq!(opaque.palette[0].border, hsla_to_css(theme.accent));
+    }
+
+    #[test]
+    fn multi_element_prompt_context() {
+        let el1 = InspectedElement {
+            tag: "h1".into(),
+            id: "title".into(),
+            classes: "".into(),
+            selector: "h1#title".into(),
+            text: "Main Heading".into(),
+            screenshot: None,
+            user_prompt: None,
+            elements: Vec::new(),
+        };
+        let el2 = InspectedElement {
+            tag: "a".into(),
+            id: "".into(),
+            classes: "nav-link".into(),
+            selector: "nav > a.nav-link".into(),
+            text: "Documentation".into(),
+            screenshot: None,
+            user_prompt: None,
+            elements: Vec::new(),
+        };
+        let multi = InspectedElement {
+            tag: el1.tag.clone(),
+            id: el1.id.clone(),
+            classes: el1.classes.clone(),
+            selector: el1.selector.clone(),
+            text: el1.text.clone(),
+            screenshot: None,
+            user_prompt: Some("adjust styling".into()),
+            elements: vec![el1, el2],
+        };
+        assert_eq!(
+            multi.to_prompt_context(),
+            "[Element: h1#title \"Main Heading\"] [Element: a.nav-link \"Documentation\"] "
+        );
     }
 }
