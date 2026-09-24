@@ -845,6 +845,13 @@ impl NativePage {
                 let startX = 0, startY = 0;
                 let isDragging = false;
 
+                let lockedScrollX = window.scrollX || window.pageXOffset || 0;
+                let lockedScrollY = window.scrollY || window.pageYOffset || 0;
+                function lockScroll() {{
+                    lockedScrollX = window.scrollX || window.pageXOffset || 0;
+                    lockedScrollY = window.scrollY || window.pageYOffset || 0;
+                }}
+
                 function getSelector(el) {{
                     if (!(el instanceof Element)) return '';
                     let path = [];
@@ -1211,6 +1218,12 @@ impl NativePage {
                 }}
 
                 function onScroll() {{
+                    if (active) {{
+                        if (window.scrollX !== lockedScrollX || window.scrollY !== lockedScrollY) {{
+                            window.scrollTo(lockedScrollX, lockedScrollY);
+                            return;
+                        }}
+                    }}
                     if (active && hoveredEl && selectedElements.length === 0) {{
                         let rect = hoveredEl.getBoundingClientRect();
                         overlay.style.left = rect.left + 'px';
@@ -1239,15 +1252,36 @@ impl NativePage {
                     }}
                 }}
 
+                function onWheel(e) {{
+                    if (!active) return;
+                    if (pillsContainer && pillsContainer.contains(e.target)) return;
+                    e.preventDefault();
+                }}
+
+                function onTouchMove(e) {{
+                    if (!active) return;
+                    if (pillsContainer && pillsContainer.contains(e.target)) return;
+                    e.preventDefault();
+                }}
+
+                const SCROLL_KEYS = ['Space', 'PageUp', 'PageDown', 'End', 'Home', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
                 window.addEventListener('keydown', (e) => {{
-                    if (active && e.key === 'Escape') {{
+                    if (!active) return;
+                    if (e.key === 'Escape') {{
                         clearSelection();
+                        return;
                     }}
-                }});
+                    if (popup && popup.contains(e.target)) return;
+                    if (SCROLL_KEYS.includes(e.code) || SCROLL_KEYS.includes(e.key)) {{
+                        e.preventDefault();
+                    }}
+                }}, {{ capture: true }});
 
                 window.__zeron_toggle_design_mode = function(enable) {{
                     active = enable;
-                    if (!active) {{
+                    if (active) {{
+                        lockScroll();
+                    }} else {{
                         if (rafId) cancelAnimationFrame(rafId);
                         overlay.style.display = 'none';
                         badge.style.display = 'none';
@@ -1323,6 +1357,8 @@ impl NativePage {
                 }};
                 window.__zeron_apply_design_theme({theme_json});
 
+                window.addEventListener('wheel', onWheel, {{ capture: true, passive: false }});
+                window.addEventListener('touchmove', onTouchMove, {{ capture: true, passive: false }});
                 window.addEventListener('pointermove', onPointerMove, {{ capture: true, passive: false }});
                 window.addEventListener('pointerdown', onPointerDown, {{ capture: true, passive: false }});
                 window.addEventListener('pointerup', onPointerUp, {{ capture: true, passive: false }});

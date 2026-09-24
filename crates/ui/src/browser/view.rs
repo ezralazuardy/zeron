@@ -748,6 +748,10 @@ impl Render for BrowserSurface {
                 .on_mouse_up(MouseButton::Middle,cx.listener(|this,event: &gpui::MouseUpEvent,_,cx| {this.linux_pointer("up",event.position,Some(event.button),event.modifiers);cx.stop_propagation();}))
                 .on_mouse_move(cx.listener(|this,event: &gpui::MouseMoveEvent,_,cx| {if !cx.has_active_drag(){this.linux_pointer("move",event.position,event.pressed_button,event.modifiers);}}))
                 .on_scroll_wheel(cx.listener(|this,event: &gpui::ScrollWheelEvent,_,cx| {
+                    if this.design_mode {
+                        cx.stop_propagation();
+                        return;
+                    }
                     if let Some(native)=&this.native {
                         let delta=event.delta.pixel_delta(px(16.));let p=event.position-native.bounds.origin;
                         native.command(serde_json::json!({"cmd":"scroll","x":f32::from(p.x),"y":f32::from(p.y),"dx":-f32::from(delta.x)/40.,"dy":-f32::from(delta.y)/40.,"mods":super::linux::modifiers_mask(event.modifiers)}));
