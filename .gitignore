@@ -4,6 +4,7 @@
 /ignore/
 *.pdb
 .DS_Store
+._*
 .env
 .env.local
 node_modules
