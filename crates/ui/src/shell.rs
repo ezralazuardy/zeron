@@ -2968,6 +2968,9 @@ impl Shell {
                     let filename = format!("{tag}-inspection.png");
                     this.composer.update(cx, |composer, cx| {
                         let cur_text = composer.input.read(cx).text().to_string();
+                        if cur_text.contains(prompt.trim()) {
+                            return;
+                        }
                         let new_text = if cur_text.is_empty() {
                             prompt
                         } else if cur_text.ends_with(' ') {

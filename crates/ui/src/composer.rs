@@ -997,6 +997,13 @@ fn parse_element_details(inner: &str) -> (String, String) {
         }
     };
 
+    let basename = if basename.chars().count() > 32 {
+        let truncated: String = basename.chars().take(31).collect();
+        format!("{truncated}…")
+    } else {
+        basename
+    };
+
     (basename, path)
 }
 
@@ -12764,6 +12771,12 @@ mod tests {
         let (display, spans) = sent_mention_display(raw).expect("element mention projects");
         assert_eq!(spans.len(), 1);
         assert_eq!(&display[spans[0].range.clone()], "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0}");
+
+        let long_raw = r#"[Element: div.very-long-custom-class-name-that-exceeds-the-maximum-badge-limit] test"#;
+        let proj_long = TextProjection::new(long_raw);
+        assert_eq!(proj_long.mentions.len(), 1);
+        assert!(proj_long.mentions[0].0.basename.ends_with('…'));
+        assert_eq!(proj_long.mentions[0].0.basename.chars().count(), 32);
     }
 
     /// Ordinary prompts must stay on the zero-cost path, including ones that

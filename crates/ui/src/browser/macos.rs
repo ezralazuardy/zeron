@@ -703,6 +703,9 @@ impl NativePage {
                 badge.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
                 badge.style.display = 'none';
                 badge.style.whiteSpace = 'nowrap';
+                badge.style.maxWidth = '320px';
+                badge.style.overflow = 'hidden';
+                badge.style.textOverflow = 'ellipsis';
 
                 let selectedOverlay = document.createElement('div');
                 selectedOverlay.id = '__zeron_design_selected__';
@@ -786,7 +789,8 @@ impl NativePage {
                         badge.textContent = tag + cls + ' (' + textDim + ')';
                         let badgeTop = rect.top - 22;
                         if (badgeTop < 2) badgeTop = rect.bottom + 4;
-                        badge.style.left = Math.max(2, rect.left) + 'px';
+                        let maxLeft = Math.max(2, window.innerWidth - 330);
+                        badge.style.left = Math.min(Math.max(2, rect.left), maxLeft) + 'px';
                         badge.style.top = badgeTop + 'px';
                         badge.style.display = 'block';
                     }});
@@ -801,7 +805,8 @@ impl NativePage {
                         overlay.style.height = rect.height + 'px';
                         let badgeTop = rect.top - 22;
                         if (badgeTop < 2) badgeTop = rect.bottom + 4;
-                        badge.style.left = Math.max(2, rect.left) + 'px';
+                        let maxLeft = Math.max(2, window.innerWidth - 330);
+                        badge.style.left = Math.min(Math.max(2, rect.left), maxLeft) + 'px';
                         badge.style.top = badgeTop + 'px';
                     }}
                     if (selectedEl) {{
@@ -815,6 +820,7 @@ impl NativePage {
                     e.stopPropagation();
 
                     let el = hoveredEl;
+                    if (selectedEl === el) return;
                     selectedEl = el;
                     updateSelected();
 
