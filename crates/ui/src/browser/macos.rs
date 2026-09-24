@@ -769,15 +769,18 @@ impl NativePage {
                 popup.style.position = 'fixed';
                 popup.style.zIndex = '2147483647';
                 popup.style.display = 'none';
-                popup.style.alignItems = 'center';
-                popup.style.gap = '6px';
+                popup.style.flexDirection = 'column';
+                popup.style.alignItems = 'stretch';
+                popup.style.gap = '8px';
                 popup.style.background = '#18181b';
                 popup.style.border = '1px solid rgba(255, 255, 255, 0.16)';
-                popup.style.borderRadius = '9999px';
-                popup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3)';
-                popup.style.padding = '4px 6px 4px 8px';
+                popup.style.borderRadius = '12px';
+                popup.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3)';
+                popup.style.padding = '8px 10px 8px 10px';
                 popup.style.boxSizing = 'border-box';
                 popup.style.userSelect = 'none';
+                popup.style.width = '380px';
+                popup.style.maxWidth = 'calc(100vw - 24px)';
                 popup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
                 popup.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -787,29 +790,50 @@ impl NativePage {
 
                 let pillsContainer = document.createElement('div');
                 pillsContainer.className = '__zeron_pills_container__';
-                pillsContainer.style.display = 'inline-flex';
+                pillsContainer.style.display = 'flex';
+                pillsContainer.style.flexWrap = 'wrap';
                 pillsContainer.style.alignItems = 'center';
                 pillsContainer.style.gap = '4px';
-                pillsContainer.style.flexShrink = '0';
-                pillsContainer.style.maxWidth = '320px';
-                pillsContainer.style.overflowX = 'auto';
+                pillsContainer.style.maxHeight = '56px';
+                pillsContainer.style.overflowY = 'auto';
                 pillsContainer.style.scrollbarWidth = 'none';
 
-                let input = document.createElement('input');
-                input.type = 'text';
+                let input = document.createElement('textarea');
                 input.placeholder = 'Describe the change';
+                input.rows = 1;
                 input.style.background = 'transparent';
                 input.style.border = 'none';
                 input.style.outline = 'none';
+                input.style.resize = 'none';
                 input.style.color = '#ffffff';
                 input.style.fontSize = '13px';
-                input.style.minWidth = '140px';
-                input.style.maxWidth = '260px';
-                input.style.flexGrow = '1';
+                input.style.width = '100%';
+                input.style.boxSizing = 'border-box';
                 input.style.fontFamily = 'inherit';
                 input.style.lineHeight = '20px';
+                input.style.height = '20px';
+                input.style.minHeight = '20px';
+                input.style.maxHeight = '160px';
+                input.style.overflowY = 'hidden';
                 input.style.padding = '0';
                 input.style.margin = '0';
+
+                let footerRow = document.createElement('div');
+                footerRow.style.display = 'flex';
+                footerRow.style.alignItems = 'center';
+                footerRow.style.justifyContent = 'space-between';
+                footerRow.style.gap = '8px';
+                footerRow.style.marginTop = '2px';
+
+                let hintEl = document.createElement('div');
+                hintEl.className = '__zeron_design_hint__';
+                hintEl.style.fontSize = '11px';
+                hintEl.style.color = 'rgba(255, 255, 255, 0.4)';
+                hintEl.style.userSelect = 'none';
+                hintEl.style.whiteSpace = 'nowrap';
+                hintEl.style.overflow = 'hidden';
+                hintEl.style.textOverflow = 'ellipsis';
+                hintEl.textContent = 'Enter to submit · Shift+Enter newline';
 
                 let submitBtn = document.createElement('button');
                 submitBtn.className = '__zeron_submit_btn__';
@@ -826,11 +850,17 @@ impl NativePage {
                 submitBtn.style.justifyContent = 'center';
                 submitBtn.style.padding = '0';
                 submitBtn.style.flexShrink = '0';
+                submitBtn.style.transition = 'opacity 0.15s ease';
                 submitBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+                submitBtn.onmouseenter = () => submitBtn.style.opacity = '0.85';
+                submitBtn.onmouseleave = () => submitBtn.style.opacity = '1';
+
+                footerRow.appendChild(hintEl);
+                footerRow.appendChild(submitBtn);
 
                 popup.appendChild(pillsContainer);
                 popup.appendChild(input);
-                popup.appendChild(submitBtn);
+                popup.appendChild(footerRow);
 
                 document.documentElement.appendChild(overlay);
                 document.documentElement.appendChild(badge);
@@ -874,6 +904,30 @@ impl NativePage {
                     return path.join(' > ');
                 }}
 
+                let currentAnchorRect = null;
+
+                function adjustTextareaHeight() {{
+                    input.style.height = 'auto';
+                    let lineHeight = 20;
+                    let minH = 20;
+                    let maxH = 8 * lineHeight;
+                    let sH = input.scrollHeight;
+                    let newH = Math.min(maxH, Math.max(minH, sH));
+                    input.style.height = newH + 'px';
+                    if (sH > maxH) {{
+                        input.style.overflowY = 'auto';
+                    }} else {{
+                        input.style.overflowY = 'hidden';
+                    }}
+                    updatePopupPosition();
+                }}
+
+                function updatePopupPosition() {{
+                    if (currentAnchorRect && popup && popup.style.display !== 'none') {{
+                        positionPopup(currentAnchorRect);
+                    }}
+                }}
+
                 function positionBadge(badgeEl, rect) {{
                     let top = rect.top - 22;
                     if (top < 4) top = rect.bottom + 4;
@@ -883,12 +937,30 @@ impl NativePage {
                 }}
 
                 function positionPopup(rect) {{
-                    let top = rect.bottom + 8;
-                    if (top + 46 > window.innerHeight) {{
-                        top = Math.max(8, rect.top - 46);
+                    if (rect) currentAnchorRect = rect;
+                    if (!currentAnchorRect) return;
+
+                    let popW = popup.offsetWidth || 380;
+                    let popH = popup.offsetHeight || 90;
+
+                    let spaceBelow = window.innerHeight - (currentAnchorRect.bottom + 8);
+                    let spaceAbove = currentAnchorRect.top - 8;
+
+                    let isAbove = false;
+                    if (spaceBelow < popH && spaceAbove > spaceBelow) {{
+                        isAbove = true;
                     }}
-                    let left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 380));
-                    popup.style.top = top + 'px';
+
+                    let top = isAbove
+                        ? Math.max(8, currentAnchorRect.top - popH - 8)
+                        : Math.min(window.innerHeight - popH - 8, currentAnchorRect.bottom + 8);
+
+                    let left = Math.min(
+                        Math.max(12, currentAnchorRect.left),
+                        Math.max(12, window.innerWidth - popW - 12)
+                    );
+
+                    popup.style.top = Math.max(8, top) + 'px';
                     popup.style.left = left + 'px';
                 }}
 
@@ -899,9 +971,14 @@ impl NativePage {
                         if (item.pillEl && item.pillEl.parentNode) item.pillEl.remove();
                     }}
                     selectedElements = [];
+                    currentAnchorRect = null;
                     if (popup) {{
                         popup.style.display = 'none';
-                        if (input) input.value = '';
+                        if (input) {{
+                            input.value = '';
+                            input.style.height = '20px';
+                            input.style.overflowY = 'hidden';
+                        }}
                     }}
                     if (pillsContainer) {{
                         pillsContainer.innerHTML = '';
@@ -932,6 +1009,14 @@ impl NativePage {
                         it.pillEl.style.color = col.text;
                         it.pillEl.style.border = '1px solid ' + col.border;
                     }}
+                    if (hintEl) {{
+                        if (selectedElements.length > 1) {{
+                            hintEl.textContent = selectedElements.length + ' elements · Enter to submit';
+                        }} else {{
+                            hintEl.textContent = 'Enter to submit · Shift+Enter newline';
+                        }}
+                    }}
+                    adjustTextareaHeight();
                     input.focus();
                 }}
 
@@ -1023,10 +1108,21 @@ impl NativePage {
                     overlay.style.display = 'none';
                     badge.style.display = 'none';
 
+                    if (hintEl) {{
+                        if (selectedElements.length > 1) {{
+                            hintEl.textContent = selectedElements.length + ' elements · Enter to submit';
+                        }} else {{
+                            hintEl.textContent = 'Enter to submit · Shift+Enter newline';
+                        }}
+                    }}
+
                     if (idx === 0) {{
                         input.value = '';
+                        adjustTextareaHeight();
                         positionPopup(rect);
                         popup.style.display = 'flex';
+                    }} else {{
+                        adjustTextareaHeight();
                     }}
                     setTimeout(() => input.focus(), 20);
                 }}
@@ -1082,6 +1178,10 @@ impl NativePage {
                 input.addEventListener('keydown', (e) => {{
                     e.stopPropagation();
                     if (e.key === 'Enter') {{
+                        if (e.shiftKey) {{
+                            setTimeout(adjustTextareaHeight, 0);
+                            return;
+                        }}
                         e.preventDefault();
                         doSubmit();
                     }} else if (e.key === 'Escape') {{
@@ -1092,9 +1192,15 @@ impl NativePage {
                         removeElement(selectedElements[selectedElements.length - 1]);
                     }}
                 }});
-                input.addEventListener('keyup', (e) => e.stopPropagation());
+                input.addEventListener('keyup', (e) => {{
+                    e.stopPropagation();
+                    adjustTextareaHeight();
+                }});
                 input.addEventListener('keypress', (e) => e.stopPropagation());
-                input.addEventListener('input', (e) => e.stopPropagation());
+                input.addEventListener('input', (e) => {{
+                    e.stopPropagation();
+                    adjustTextareaHeight();
+                }});
 
                 submitBtn.addEventListener('click', (e) => {{
                     e.preventDefault();
@@ -1255,12 +1361,14 @@ impl NativePage {
                 function onWheel(e) {{
                     if (!active) return;
                     if (pillsContainer && pillsContainer.contains(e.target)) return;
+                    if (input && input.contains(e.target)) return;
                     e.preventDefault();
                 }}
 
                 function onTouchMove(e) {{
                     if (!active) return;
                     if (pillsContainer && pillsContainer.contains(e.target)) return;
+                    if (input && input.contains(e.target)) return;
                     e.preventDefault();
                 }}
 
@@ -1304,7 +1412,7 @@ impl NativePage {
                         styleTag.id = '__zeron_design_theme_styles__';
                         document.head.appendChild(styleTag);
                     }}
-                    styleTag.textContent = '#__zeron_design_popup__ input::placeholder {{ color: ' + t.text_muted + ' !important; opacity: 1 !important; }}';
+                    styleTag.textContent = '#__zeron_design_popup__ textarea::placeholder {{ color: ' + t.text_muted + ' !important; opacity: 1 !important; }} #__zeron_design_popup__ textarea::-webkit-scrollbar {{ width: 4px; }} #__zeron_design_popup__ textarea::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 2px; }}';
                     let pop = document.getElementById('__zeron_design_popup__');
                     if (pop) {{
                         pop.style.background = t.bg;
@@ -1313,9 +1421,12 @@ impl NativePage {
                         pop.style.border = '1px solid ' + t.border;
                         pop.style.boxShadow = t.box_shadow;
 
-                        let inp = pop.querySelector('input');
+                        let inp = pop.querySelector('textarea');
                         if (inp) {{
                             inp.style.color = t.text;
+                        }}
+                        if (hintEl) {{
+                            hintEl.style.color = t.text_muted;
                         }}
                         let btn = pop.querySelector('.__zeron_submit_btn__');
                         if (btn) {{
