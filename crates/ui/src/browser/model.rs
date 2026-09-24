@@ -48,7 +48,7 @@ pub struct ConsoleLogEntry {
 }
 
 impl InspectedElement {
-    fn single_prompt_context(&self) -> String {
+    pub fn single_prompt_context(&self) -> String {
         let mut desc = self.tag.clone();
         if !self.id.is_empty() {
             desc.push('#');

@@ -1222,17 +1222,41 @@ impl NativePage {
                     setTimeout(() => input.focus(), 20);
                 }}
 
+                function formatElementPrompt(info) {{
+                    let desc = info.tag || 'element';
+                    if (info.id) {{
+                        desc += '#' + info.id;
+                    }}
+                    if (info.classes) {{
+                        let cls = info.classes.trim().split(/\\s+/).filter(Boolean).join('.');
+                        if (cls) desc += '.' + cls;
+                    }}
+                    if (desc === (info.tag || 'element') && info.selector) {{
+                        desc = info.selector;
+                    }}
+                    let txt = (info.text || '').replace(/"/g, '\\\\\"').replace(/[\\r\\n]+/g, ' ').trim();
+                    if (txt) {{
+                        return '[Element: ' + desc + ' \"' + txt + '\"]';
+                    }} else {{
+                        return '[Element: ' + desc + ']';
+                    }}
+                }}
+
                 function getPromptText() {{
                     let result = '';
                     function traverse(node) {{
                         if (node.nodeType === Node.TEXT_NODE) {{
-                            result += node.textContent.replace(/\u00A0/g, ' ');
+                            result += node.textContent.replace(/\\u00A0/g, ' ');
                         }} else if (node.nodeType === Node.ELEMENT_NODE) {{
                             if (node.classList && node.classList.contains('__zeron_inline_pill__')) {{
-                                let tag = node.dataset.tag || node.textContent;
-                                result += '[' + tag + ']';
+                                if (node.__item && node.__item.info) {{
+                                    result += formatElementPrompt(node.__item.info);
+                                }} else {{
+                                    let tag = node.dataset.tag || node.textContent || 'element';
+                                    result += '[Element: ' + tag + ']';
+                                }}
                             }} else if (node.tagName === 'BR') {{
-                                result += '\n';
+                                result += '\\n';
                             }} else {{
                                 for (let child of node.childNodes) {{
                                     traverse(child);
@@ -1241,7 +1265,7 @@ impl NativePage {
                         }}
                     }}
                     traverse(input);
-                    return result.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '').trim();
+                    return result.replace(/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/g, '').trim();
                 }}
 
                 function sanitizeInputText() {{
@@ -1249,8 +1273,8 @@ impl NativePage {
                     let node;
                     let modified = false;
                     while ((node = walker.nextNode())) {{
-                        if (/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(node.textContent)) {{
-                            node.textContent = node.textContent.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '');
+                        if (/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/.test(node.textContent)) {{
+                            node.textContent = node.textContent.replace(/[\\u0000-\\u001F\\u007F-\\u009F\\uFFFC\\uFFFD]/g, '');
                             modified = true;
                         }}
                     }}
@@ -1259,6 +1283,7 @@ impl NativePage {
 
                 function doSubmit() {{
                     if (selectedElements.length === 0) return;
+                    syncElementsFromPills();
                     let promptText = getPromptText();
                     let primary = selectedElements[0];
                     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

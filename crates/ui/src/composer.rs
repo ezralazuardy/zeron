@@ -12821,6 +12821,26 @@ mod tests {
         assert_eq!(proj_long.mentions[0].0.basename.chars().count(), 32);
     }
 
+    #[test]
+    fn element_mention_multiple_inline_projection() {
+        let raw = r#"[Element: h1.font-heading "Title"] change this, [Element: p.mt-6 "text"], and [Element: a.btn "link"] to red"#;
+        let projection = TextProjection::new(raw);
+        assert_eq!(projection.mentions.len(), 3);
+        assert_eq!(projection.mentions[0].0.basename, "h1.font-heading");
+        assert_eq!(projection.mentions[1].0.basename, "p.mt-6");
+        assert_eq!(projection.mentions[2].0.basename, "a.btn");
+        assert_eq!(
+            &projection.display,
+            "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0} change this, \u{00A0}◈\u{00A0}p.mt-6\u{00A0}, and \u{00A0}◈\u{00A0}a.btn\u{00A0} to red"
+        );
+
+        let (display, spans) = sent_mention_display(raw).expect("element mentions project");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(&display[spans[0].range.clone()], "\u{00A0}◈\u{00A0}h1.font-heading\u{00A0}");
+        assert_eq!(&display[spans[1].range.clone()], "\u{00A0}◈\u{00A0}p.mt-6\u{00A0}");
+        assert_eq!(&display[spans[2].range.clone()], "\u{00A0}◈\u{00A0}a.btn\u{00A0}");
+    }
+
     /// Ordinary prompts must stay on the zero-cost path, including ones that
     /// merely *talk about* the scheme without containing a valid mention.
     #[test]

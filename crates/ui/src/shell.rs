@@ -3073,11 +3073,15 @@ impl Shell {
                     this.close_right_surface(RightSurface::Browser(id), window, cx)
                 }
                 crate::browser::BrowserEvent::InspectElement(element) => {
-                    let prompt = element.to_prompt_context();
                     let screenshot = element.screenshot.clone();
                     let tag = if element.tag.is_empty() { "element" } else { &element.tag };
                     let filename = format!("{tag}-inspection.png");
                     let user_prompt = element.user_prompt.clone().unwrap_or_default();
+                    let prompt = if user_prompt.contains("[Element: ") {
+                        element.single_prompt_context()
+                    } else {
+                        element.to_prompt_context()
+                    };
                     this.composer.update(cx, |composer, cx| {
                         let cur_text = composer.input.read(cx).text().to_string();
                         let element_prompt = prompt.trim();
