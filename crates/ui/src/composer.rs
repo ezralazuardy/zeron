@@ -1047,6 +1047,15 @@ fn element_mention_links(text: &str) -> Vec<FileMentionLink> {
                         break;
                     }
                 }
+                if tag.is_empty() {
+                    if let Some(tag_idx) = block_content.find("tag:") {
+                        let after = block_content[tag_idx + 4..].trim_start();
+                        let tag_str = after.split_whitespace().next().unwrap_or("");
+                        if !tag_str.is_empty() {
+                            tag = tag_str.to_string();
+                        }
+                    }
+                }
                 let basename = if tag.is_empty() {
                     "element".to_string()
                 } else {
@@ -12933,6 +12942,19 @@ mod tests {
         assert_eq!(
             display,
             "\u{00A0}◈\u{00A0}h1\u{00A0} ubah title ini dan title \u{00A0}◈\u{00A0}h2\u{00A0} untuk pakai font heading"
+        );
+    }
+
+    #[test]
+    fn element_mention_cursor_browser_element_tag_fallback() {
+        let raw = "@\n```browser_element\ntag: a\n```\n cek button ini dan button @\n```browser_element The user selected this node. tag: a dom_path: a.btn```\n pakai warna apa";
+        let projection = TextProjection::new(raw);
+        assert_eq!(projection.mentions.len(), 2);
+        assert_eq!(projection.mentions[0].0.basename, "a");
+        assert_eq!(projection.mentions[1].0.basename, "a");
+        assert_eq!(
+            &projection.display,
+            "\u{00A0}◈\u{00A0}a\u{00A0} cek button ini dan button \u{00A0}◈\u{00A0}a\u{00A0} pakai warna apa"
         );
     }
 

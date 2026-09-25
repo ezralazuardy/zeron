@@ -1055,6 +1055,7 @@ impl NativePage {
                     pill.className = '__zeron_inline_pill__';
                     pill.contentEditable = 'false';
                     pill.dataset.tag = item.info.tag || 'element';
+                    if (item.id) pill.dataset.elemId = item.id;
                     pill.__item = item;
                     pill.style.display = 'inline-block';
                     pill.style.background = color.bg;
@@ -1113,7 +1114,7 @@ impl NativePage {
                     let newSelected = [selectedElements[0]];
                     for (let i = 1; i < selectedElements.length; i++) {{
                         let item = selectedElements[i];
-                        let foundIdx = remainingPills.findIndex(p => p.__item === item);
+                        let foundIdx = remainingPills.findIndex(p => p.__item === item || p === item.pillEl || (p.dataset.elemId && p.dataset.elemId === item.id));
                         if (foundIdx !== -1) {{
                             newSelected.push(item);
                             remainingPills.splice(foundIdx, 1);
@@ -1217,7 +1218,7 @@ impl NativePage {
                     document.documentElement.appendChild(overlayEl);
                     document.documentElement.appendChild(badgeEl);
 
-                    let item = {{ el, rect, info, overlayEl, badgeEl, pillEl: null }};
+                    let item = {{ id: '__zeron_elem_' + (selectedElements.length + 1) + '_' + Date.now(), el, rect, info, overlayEl, badgeEl, pillEl: null }};
 
                     if (idx === 0) {{
                         firstPill.textContent = info.tag || 'element';
@@ -1288,10 +1289,11 @@ impl NativePage {
                         }} else if (node.nodeType === Node.ELEMENT_NODE) {{
                             if (node.classList && node.classList.contains('__zeron_inline_pill__')) {{
                                 let prompt = '';
-                                if (node.__item && node.__item.info) {{
-                                    prompt = formatElementPrompt(node.__item.info);
+                                let item = (node.__item && node.__item.info) ? node.__item : selectedElements.find(it => it.pillEl === node || (node.dataset.elemId && it.id === node.dataset.elemId));
+                                if (item && item.info) {{
+                                    prompt = formatElementPrompt(item.info);
                                 }} else {{
-                                    let tag = node.dataset.tag || node.textContent || 'element';
+                                    let tag = node.dataset.tag || node.textContent.trim() || 'element';
                                     prompt = formatElementPrompt({{ tag }});
                                 }}
                                 if (result.length > 0 && !result.endsWith(' ') && !result.endsWith('\n')) {{
@@ -1308,7 +1310,7 @@ impl NativePage {
                         }}
                     }}
                     traverse(input);
-                    return result.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '').trim();
+                    return result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '').trim();
                 }}
 
                 function sanitizeInputText() {{
@@ -1316,8 +1318,8 @@ impl NativePage {
                     let node;
                     let modified = false;
                     while ((node = walker.nextNode())) {{
-                        if (/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(node.textContent)) {{
-                            node.textContent = node.textContent.replace(/[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '');
+                        if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(node.textContent)) {{
+                            node.textContent = node.textContent.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFC\uFFFD]/g, '');
                             modified = true;
                         }}
                     }}
@@ -1483,7 +1485,7 @@ impl NativePage {
                 }});
                 input.addEventListener('beforeinput', (e) => {{
                     e.stopPropagation();
-                    if (e.data && /[\u0000-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(e.data)) {{
+                    if (e.data && /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFC\uFFFD]/.test(e.data)) {{
                         e.preventDefault();
                         return;
                     }}
