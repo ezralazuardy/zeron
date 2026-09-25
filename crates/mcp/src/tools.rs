@@ -517,7 +517,7 @@ impl Tools {
             "interrupt_chat" => self.interrupt_chat(parse(args)?).await,
             "respond_to_input" => self.respond_to_input(parse(args)?).await,
             "archive_chat" => self.archive_chat(parse(args)?).await,
-            "browser_get_view" => self.browser_get_view().await,
+            "browser_get_view" | "browser_state" => self.browser_get_view().await,
             "browser_navigate" => self.browser_navigate(parse(args)?).await,
             "browser_console_logs" => self.browser_console_logs(parse(args)?).await,
             "browser_click" => self.browser_click(parse(args)?).await,
