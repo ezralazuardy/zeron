@@ -1935,6 +1935,7 @@ pub struct Shell {
     runtime_change_error: Option<SharedString>,
     /// The one-time local→synced import stream (switch wizard progress step).
     import_task: Option<Task<()>>,
+    #[allow(dead_code)]
     browser_command_task: Option<Task<()>>,
     /// Title of the chat the import stream is copying right now.
     import_current: Option<SharedString>,
@@ -3490,6 +3491,7 @@ impl Shell {
         });
     }
 
+    #[allow(dead_code)]
     fn start_browser_command_listener(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.browser_command_task.is_some() {
             return;
@@ -12156,6 +12158,7 @@ impl Render for Shell {
         }
 
         self.render_time = Some(std::time::Instant::now());
+        #[cfg(not(test))]
         if self.browser_command_task.is_none() {
             self.start_browser_command_listener(window, cx);
         }
