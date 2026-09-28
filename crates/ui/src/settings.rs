@@ -685,6 +685,9 @@ pub struct UiSettings {
     pub sidebar_show_harness: bool,
     pub sidebar_show_branch: bool,
     pub sidebar_show_pull_request: bool,
+    /// The sidebar's "Star on GitHub" banner was dismissed (its close button
+    /// or following the link). Device-local; never shown again once set.
+    pub github_star_banner_dismissed: bool,
     /// The last selected space — restored on boot when the row still exists;
     /// also the new-tab default when the sidebar filter is "All".
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -732,6 +735,9 @@ pub struct UiSettings {
     /// the foreground case).
     pub notifications_background_only: bool,
     pub files_panel_width: f32,
+    /// Desktop banners for newly discovered agent CLI releases. In-app chips
+    /// remain enabled independently of this preference.
+    pub agent_update_notifications: bool,
     pub right_pane_width: f32,
     /// Legacy: panel *open* flags are session-scoped in-memory state now
     /// (`shell::SessionPanels`, zeron `sessionPanels` parity). Kept for file
@@ -753,6 +759,10 @@ pub struct UiSettings {
     /// Whether bare Escape stops the active agent after contextual consumers
     /// decline it. Device-local and opt-in.
     pub escape_stops_active_agent: bool,
+    /// The Settings section last viewed. ⌘, / Ctrl+,, the footer gear and the
+    /// palette reopen it; links naming a section replace it. Files without
+    /// it, or with a name this build does not know, open on General.
+    pub settings_section: crate::shell::SettingsSection,
     /// Light/dark preference. Defaults to following the OS.
     pub appearance: crate::appearance::AppearanceMode,
     /// Optional columns shown in every Git History pane.
@@ -831,6 +841,7 @@ impl Default for UiSettings {
             sidebar_show_harness: true,
             sidebar_show_branch: true,
             sidebar_show_pull_request: true,
+            github_star_banner_dismissed: false,
             last_space_id: None,
             last_project_action_by_space_id: std::collections::HashMap::new(),
             open_tabs: None,
@@ -846,12 +857,14 @@ impl Default for UiSettings {
             notifications_enabled: true,
             notifications_background_only: true,
             files_panel_width: FILES_PANEL_DEFAULT,
+            agent_update_notifications: true,
             right_pane_width: RIGHT_PANE_DEFAULT,
             right_pane_open: false,
             terminal_height: TERMINAL_DEFAULT_HEIGHT,
             terminal_open: false,
             keymap: KeymapConfig::default(),
             escape_stops_active_agent: false,
+            settings_section: crate::shell::SettingsSection::default(),
             composer_send_behavior: ComposerSendBehavior::default(),
             skills_in_slash_menu: false,
             skill_completion_by_harness: Default::default(),
@@ -977,8 +990,8 @@ impl ShortcutId {
             ShortcutId::NewSession => "New session",
             ShortcutId::NewProject => "New project",
             ShortcutId::OpenModelPicker => "Open model picker",
-            ShortcutId::NextSession => "Next session",
-            ShortcutId::PrevSession => "Previous session",
+            ShortcutId::NextSession => "Next session or right pane tab",
+            ShortcutId::PrevSession => "Previous session or right pane tab",
             ShortcutId::ArchiveSession => "Archive session",
             ShortcutId::JumpSession(slot) => JUMP_LABELS.get(slot).copied().unwrap_or(""),
         }
@@ -1746,6 +1759,59 @@ mod tests {
     }
 
     #[test]
+    fn settings_section_round_trips_and_old_or_unknown_values_read_as_general() {
+        use crate::shell::SettingsSection;
+        let dir = tempfile::tempdir().unwrap();
+        let settings = UiSettings {
+            settings_section: SettingsSection::Appearance,
+            ..Default::default()
+        };
+        settings.save(dir.path()).unwrap();
+        let text = std::fs::read_to_string(UiSettings::path(dir.path())).unwrap();
+        assert!(
+            text.contains(r#""settingsSection": "appearance""#),
+            "{text}"
+        );
+        assert_eq!(
+            UiSettings::load(dir.path()).settings_section,
+            SettingsSection::Appearance
+        );
+        for section in SettingsSection::ALL {
+            let encoded = serde_json::to_string(&UiSettings {
+                settings_section: section,
+                ..Default::default()
+            })
+            .unwrap();
+            let decoded: UiSettings = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded.settings_section, section);
+        }
+
+        // A file written before the field existed.
+        let legacy: UiSettings = serde_json::from_str(r#"{"sidebarWidth":300}"#).unwrap();
+        assert_eq!(legacy.settings_section, SettingsSection::General);
+        assert_eq!(legacy.sidebar_width, 300.0);
+        // Unknown names and malformed values read as General without
+        // defaulting the rest of the file.
+        for raw in [r#""billing""#, "42", "null", r#"{"section":"devices"}"#] {
+            std::fs::write(
+                UiSettings::path(dir.path()),
+                format!(r#"{{"sidebarWidth": 300, "settingsSection": {raw}}}"#),
+            )
+            .unwrap();
+            let loaded = UiSettings::load(dir.path());
+            assert_eq!(loaded.settings_section, SettingsSection::General, "{raw}");
+            assert_eq!(loaded.sidebar_width, 300.0, "{raw}");
+        }
+        // The legacy Accounts alias still reads, and reopens as Providers.
+        let alias: UiSettings = serde_json::from_str(r#"{"settingsSection":"agents"}"#).unwrap();
+        assert_eq!(alias.settings_section, SettingsSection::Agents);
+        assert_eq!(
+            alias.settings_section.reopenable(),
+            SettingsSection::Harnesses
+        );
+    }
+
+    #[test]
     fn window_geometry_recenters_when_saved_display_is_disconnected() {
         let primary = WindowGeometry {
             display_uuid: Some(uuid::Uuid::from_u128(1)),
@@ -2157,6 +2223,7 @@ mod tests {
             sidebar_show_harness: false,
             sidebar_show_branch: false,
             sidebar_show_pull_request: false,
+            github_star_banner_dismissed: true,
             last_space_id: Some("space-1".into()),
             last_project_action_by_space_id: std::collections::HashMap::from([(
                 "space-1".into(),
@@ -2187,6 +2254,7 @@ mod tests {
             notifications_enabled: false,
             notifications_background_only: false,
             files_panel_width: 310.0,
+            agent_update_notifications: false,
             right_pane_width: 700.0,
             right_pane_open: true,
             terminal_height: 320.0,
@@ -2196,6 +2264,7 @@ mod tests {
                 ..KeymapConfig::default()
             },
             escape_stops_active_agent: true,
+            settings_section: crate::shell::SettingsSection::Shortcuts,
             composer_send_behavior: ComposerSendBehavior::ModEnter,
             skills_in_slash_menu: true,
             skill_completion_by_harness: Default::default(),
