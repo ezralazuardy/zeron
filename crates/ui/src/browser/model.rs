@@ -280,7 +280,7 @@ pub fn hsla_to_css(color: gpui::Hsla) -> String {
 
 impl DesignPopupTheme {
     pub fn from_theme(theme: &crate::theme::Theme) -> Self {
-        let is_glass = theme.is_glass();
+        let is_glass = theme.is_frost() || theme.is_glass();
         let bg = hsla_to_css(theme.glass());
         let border = hsla_to_css(theme.border);
         let text = hsla_to_css(theme.text);
