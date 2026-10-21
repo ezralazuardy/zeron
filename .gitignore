@@ -17,3 +17,4 @@ AGENTS.md
 .codegraph
 .claude
 CLAUDE.md
+/scripts/**/__pycache__/

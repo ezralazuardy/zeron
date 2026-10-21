@@ -14,16 +14,18 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
     private let queue = QueuePanel()
     private let pill = StatusPill()
     private let bottom = UIStackView()
+    private var bottomRest: NSLayoutConstraint?
     private let jump = Glass.circleButton(symbol: "arrow.down", size: 40, pointSize: 15)
     private let titleView = SessionTitleView()
     private var shown = SessionChrome()
     private let openedAt = CACurrentMediaTime()
     private var reportedOpen = false
 
-    init(app: AppModel, chatId: String) {
+    init?(app: AppModel, chatId: String) {
+        guard let source = app.sessionSource(chatId) else { return nil }
         self.app = app
         self.chatId = chatId
-        self.source = app.sessionSource(chatId)
+        self.source = source
         super.init(nibName: nil, bundle: nil)
         hidesBottomBarWhenPushed = true
     }
@@ -40,6 +42,21 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.titleView = titleView
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: sessionMenu())
+        // The session has its own composer, so the tab bar's voice control
+        // steps aside with the accessory; the call stays a tap away up here.
+        let voiceBar = VoiceBarItem(app: app, host: self)
+        self.voiceBar = voiceBar
+        let menu = navigationItem.rightBarButtonItem!
+        let syncVoice = { [weak self, weak voiceBar] in
+            guard let self, let voiceBar else { return }
+            let items = voiceBar.visible ? [menu, voiceBar.item] : [menu]
+            if self.navigationItem.rightBarButtonItems?.count != items.count {
+                self.navigationItem.setRightBarButtonItems(items, animated: self.view.window != nil)
+            }
+        }
+        voiceToken = app.voice.observe(syncVoice)
+        hostsToken = app.observe(syncVoice)
+        syncVoice()
 
         list.frame = view.bounds
         list.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -143,10 +160,10 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
                 fill.priority = .defaultHigh
                 return fill
             }(),
-            bottom.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8),
             jump.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             jump.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -12),
         ])
+        bottomRest = pinAboveKeyboard(bottom)
 
         source.onChange = { [weak self] in self?.render(animated: true) }
         source.attach(engine)
@@ -164,6 +181,9 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
 
     private var hasAppeared = false
     private var backgroundObserver: NSObjectProtocol?
+    private var voiceBar: VoiceBarItem?
+    private var voiceToken: AnyObject?
+    private var hostsToken: AnyObject?
 
     deinit {
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
@@ -347,6 +367,11 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
 
     private let bottomFade = EdgeFadeOverlay()
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        bottomRest?.constant = -composerRestGap
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let covered = view.bounds.maxY - bottom.frame.minY + 8
@@ -525,6 +550,30 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
     }
 }
 
+extension UIViewController {
+    /// Pins a composer 8pt above the keyboard; at rest it sits on the safe
+    /// area, `composerRestGap` up. Returns the rest constraint.
+    func pinAboveKeyboard(_ bar: UIView) -> NSLayoutConstraint {
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        let rest = bar.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -composerRestGap)
+        let down = bar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        down.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            bar.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -8),
+            rest,
+            down,
+        ])
+        return rest
+    }
+
+    /// Beside the sidebar the composer rests on the safe area, level with
+    /// the sidebar's bottom toolbar; on its own (tab shell, sheet) 8pt up.
+    var composerRestGap: CGFloat {
+        guard tabBarController == nil, let split = splitViewController, !split.isCollapsed else { return 8 }
+        return 0
+    }
+}
+
 /// Two-line navigation title: session title over "project @ device".
 final class SessionTitleView: UIView {
     private let title = FadingLabel()
@@ -615,6 +664,9 @@ final class StatusPill: UIControl {
             }
             render()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in render() }
+        case .sending:
+            grid.kind = .trailer
+            label.text = "Sending to host…"
         case .offline:
             grid.kind = .dot(StatusTone.idle)
             label.text = "Offline — sends are saved"

@@ -4,7 +4,7 @@
 //!
 //! Ordering mirrors the desktop sidebar (`Shell::sidebar_visible_order`,
 //! "In one list" + "Last updated"): pinned sessions in their shared manual
-//! order, then the user's sections (each in recency order), then everything
+//! order, then the user's sections (each in its placed order), then everything
 //! else by recency ([`zeron_proto::view::sort_active`] keys). Archived and
 //! child (side/subagent) chats never appear in the active lists, and a chat
 //! pointing at a deleted project is hidden (projectless chats are first-class).
@@ -32,9 +32,9 @@ pub const PROJECT_COLOR_COUNT: u32 = 8;
 /// monogram tone: 32-bit FNV-1a of the project's path (`"home"` without a
 /// project), so a project has the same color on every device.
 pub fn project_color_index(space_path: &str) -> u32 {
-    let hash = space_path
-        .bytes()
-        .fold(2_166_136_261u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16_777_619));
+    let hash = space_path.bytes().fold(2_166_136_261u32, |h, b| {
+        (h ^ u32::from(b)).wrapping_mul(16_777_619)
+    });
     hash % PROJECT_COLOR_COUNT
 }
 
@@ -80,9 +80,8 @@ pub struct SessionRow {
     pub branch: Option<String>,
     pub cwd: Option<String>,
     pub indicator: ChatIndicator,
-    /// The host-reported status alone (45s staleness-gated) — `indicator`
-    /// minus the "a send of mine is in flight" override. What stop/busy
-    /// logic keys off (a send parked for an offline host is not a turn).
+    /// Host-reported status (45s staleness-gated). Stop/busy logic keys off
+    /// this; an outgoing send is not evidence of a running turn.
     pub host_indicator: ChatIndicator,
     /// Run start of the live turn while Working/AwaitingInput.
     pub working_since_ms: Option<i64>,
@@ -431,21 +430,13 @@ fn build_row(chat: &Chat, rc: &RowContext<'_>, cx: &DeriveContext<'_>) -> Arc<Se
     let session = rc.sessions.get(chat.id.as_str()).copied();
     let send_state = cx.send_states.get(&chat.id).copied();
     let host_indicator = display_status(chat, session, cx.now);
-    let mut indicator = host_indicator;
-    let mut working_since_ms = match indicator {
+    let indicator = host_indicator;
+    let working_since_ms = match indicator {
         ChatIndicator::Working | ChatIndicator::AwaitingInput => session
             .and_then(|s| s.started_at)
             .map(|t| t.timestamp_millis()),
         _ => None,
     };
-    // A send in flight reads as Working (desktop `display_status_for`).
-    if matches!(send_state, Some(SendState::Sending | SendState::Queued))
-        && indicator != ChatIndicator::Working
-        && indicator != ChatIndicator::AwaitingInput
-    {
-        indicator = ChatIndicator::Working;
-        working_since_ms = None;
-    }
     let project = chat
         .space_id
         .as_deref()
@@ -567,7 +558,7 @@ pub(crate) fn derive(
     let mut active: Vec<&Chat> = state
         .chats
         .iter()
-        .filter(|c| !c.archived && c.parent_chat_id.is_none())
+        .filter(|c| !c.archived && c.is_top_level())
         .filter(|c| {
             c.space_id
                 .as_deref()
@@ -591,11 +582,14 @@ pub(crate) fn derive(
             id: section.id.clone(),
             name: section.name.clone(),
             collapsed: section.collapsed,
-            sessions: active
+            // Members keep their placed order, as on desktop.
+            sessions: section
+                .session_ids
                 .iter()
-                .filter(|c| !rc.pinned.contains(c.id.as_str()))
-                .filter(|c| rc.section_of.get(c.id.as_str()) == Some(&section.id.as_str()))
-                .map(|c| row(c))
+                .filter(|id| active_ids.contains(id.as_str()) && !rc.pinned.contains(id.as_str()))
+                .filter(|id| rc.section_of.get(id.as_str()) == Some(&section.id.as_str()))
+                .filter(|id| seen.insert(id.as_str()))
+                .map(|id| rows[id].clone())
                 .collect(),
         })
         .collect();
@@ -674,7 +668,7 @@ pub(crate) fn derive(
     let mut archived_chats: Vec<&Chat> = state
         .chats
         .iter()
-        .filter(|c| c.archived && c.parent_chat_id.is_none())
+        .filter(|c| c.archived && c.is_top_level())
         .collect();
     sort_recency(&mut archived_chats);
     let archived: Vec<Arc<SessionRow>> = archived_chats.iter().map(|c| row(c)).collect();

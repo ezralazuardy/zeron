@@ -53,6 +53,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.makeKeyAndVisible()
         if !args.contains("-lab") { shellShown() }
 
+        #if DEBUG
+        if args.contains("-voice-preview") {
+            app.voice.preview()
+            if args.contains("-voice-stage") {
+                DispatchQueue.main.async { [app] in window.rootViewController?.presentVoiceStage(app: app, source: nil) }
+            }
+        }
+        #endif
         if let router = window.rootViewController as? AppRouter, let i = args.firstIndex(of: "-route"), i + 1 < args.count {
             let route = args[i + 1]
             DispatchQueue.main.async {
@@ -74,11 +82,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     private func showRoot(animated: Bool) {
         guard let window else { return }
-        // iPad gets the split shell (it collapses to the tab shell
-        // at compact widths); iPhone the tab shell directly.
-        let root: UIViewController = !app.isSignedIn
-            ? SignInViewController(app: app)
-            : UIDevice.current.userInterfaceIdiom == .pad ? SplitRootController(app: app) : MainTabController(app: app)
+        // The split shell everywhere: it shows the sidebar when the window
+        // is regular in both directions (iPad, an unfolded iPhone Duo) and
+        // collapses to the tab shell otherwise, live as the window changes —
+        // folding or unfolding carries the open session across.
+        let root: UIViewController = !app.isSignedIn ? SignInViewController(app: app) : SplitRootController(app: app)
         // Sheets (new session, Settings) belong to the old root: they'd
         // stay on top of the new one.
         if let old = window.rootViewController, old.presentedViewController != nil {
@@ -91,6 +99,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         UIView.transition(with: window, duration: 0.35, options: [.transitionCrossDissolve, .allowAnimatedContent]) {
             window.rootViewController = root
         }
+    }
+
+    /// `zeron://voice` (the call's Live Activity) returns to the stage.
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard URLContexts.contains(where: { $0.url.scheme == "zeron" && $0.url.host == "voice" }),
+              app.voice.live, let root = window?.rootViewController
+        else { return }
+        root.presentVoiceStage(app: app, source: nil)
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
